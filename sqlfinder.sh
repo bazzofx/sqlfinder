@@ -14,6 +14,16 @@ CHECK="✓"
 # ---------------- Help ----------------
 show_help() {
   cat << 'EOF'
+
+                                                          
+ ▄▄▄▄▄▄▄       ▄▄    ▄▄▄▄▄▄▄              ▄▄             
+█████▀▀▀       ██   ███▀▀▀▀▀ ▀▀           ██             
+ ▀████▄  ▄████ ██   ███▄▄    ██  ████▄ ▄████ ▄█▀█▄ ████▄ 
+   ▀████ ██ ██ ██   ███▀▀    ██  ██ ██ ██ ██ ██▄█▀ ██ ▀▀ 
+███████▀ ▀████ ██   ███      ██▄ ██ ██ ▀████ ▀█▄▄▄ ██    
+            ██ Crawling and Testing for SQL Injections---|=( 
+            ▀▀                              
+                                            by Cyber Samurai-- -|=
 Usage:
   sqlfinder.sh <target> [options]
   sqlfinder.sh -f <file> [options]
@@ -43,7 +53,7 @@ Description:
 
   By default, sqlfinder runs lightweight boolean checks.
   Use -i to enable aggressive SQL injection techniques.
-
+  The Intense flag is still under development
 EOF
 }
 
