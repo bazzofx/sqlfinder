@@ -37,7 +37,7 @@ echo "[*] Installing uro..."
 if ! command -v pipx >/dev/null 2>&1; then
   echo "[!] pipx not found. Installing pipx..."
   sudo python3 -m pip install --user pipx --break-system-packages
-  sudo python3 -m pipx ensurepath
+  #sudo python3 -m pipx ensurepath
   sudo export PATH="$PATH:$HOME/.local/bin"
 fi
 
