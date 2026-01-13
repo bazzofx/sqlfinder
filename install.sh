@@ -2,6 +2,30 @@
 
 set -e
 
+# ---------------- Check Go ----------------
+if ! command -v go >/dev/null 2>&1; then
+  echo "[*] Go not found. Installing GoLang..."
+
+  sudo apt update
+  sudo apt install -y golang
+
+  # Persist environment variables
+  if ! grep -q "GOROOT" ~/.bashrc; then
+    cat << 'EOF' >> ~/.bashrc
+
+# GoLang environment
+export GOROOT=/usr/lib/go
+export GOPATH=$HOME/go
+export PATH=$GOPATH/bin:$GOROOT/bin:$PATH
+EOF
+  fi
+
+  echo "[*] Go installed. Restart your terminal or run:"
+  echo "    source ~/.bashrc"
+else
+  echo "[✓] Go is already installed"
+fi
+
 echo "[*] Installing katana..."
 CGO_ENABLED=1 go install github.com/projectdiscovery/katana/cmd/katana@latest
 
