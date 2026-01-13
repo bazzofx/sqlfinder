@@ -19,28 +19,34 @@ export GOPATH=$HOME/go
 export PATH=$GOPATH/bin:$GOROOT/bin:$PATH
 EOF
   fi
-
+  # Ensure Go bin is in PATH
+  export PATH="$PATH:$(go env GOPATH)/bin"
   echo "[*] Go installed. Restart your terminal or run:"
   echo "    source ~/.bashrc"
 else
   echo "[✓] Go is already installed"
 fi
 
-echo "[*] Installing katana..."
-CGO_ENABLED=1 go install github.com/projectdiscovery/katana/cmd/katana@latest
 
-# Ensure Go bin is in PATH
-export PATH="$PATH:$(go env GOPATH)/bin"
+echo "[*] Installing katana..."
+wget https://github.com/projectdiscovery/katana/releases/download/v1.4.0/katana_1.4.0_linux_amd64.zip
+unzip katana_1.4.0_linux_amd64.zip -d katana
+cp katana/katana /usr/local/bin
 
 echo "[*] Installing uro..."
 if ! command -v pipx >/dev/null 2>&1; then
   echo "[!] pipx not found. Installing pipx..."
-  python3 -m pip install --user pipx
+  python3 -m pip install --user pipx --break-system-packages
   python3 -m pipx ensurepath
   export PATH="$PATH:$HOME/.local/bin"
 fi
 
-pipx install uro || pipx reinstall uro
+git clone https://github.com/s0md3v/uro
+cd uro/uro
+pipx install uro --force
+#chmod +x uro.py
+mv uro.py uro
+cp uro.py "usr/local/bin/"
 
 echo "[*] Verifying installations..."
 
