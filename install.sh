@@ -31,7 +31,7 @@ fi
 echo "[*] Installing katana..."
 wget https://github.com/projectdiscovery/katana/releases/download/v1.4.0/katana_1.4.0_linux_amd64.zip
 unzip katana_1.4.0_linux_amd64.zip -d katana
-cp katana/katana /usr/local/bin
+sudo cp katana/katana /usr/local/bin
 
 echo "[*] Installing uro..."
 if ! command -v pipx >/dev/null 2>&1; then
@@ -45,7 +45,7 @@ git clone https://github.com/s0md3v/uro
 cd uro/uro
 pipx install uro --force
 mv uro.py uro
-cp uro "/usr/local/bin"
+sudo cp uro "/usr/local/bin"
 
 echo "[*] Verifying installations..."
 
