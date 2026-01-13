@@ -44,9 +44,8 @@ fi
 git clone https://github.com/s0md3v/uro
 cd uro/uro
 pipx install uro --force
-#chmod +x uro.py
 mv uro.py uro
-cp uro.py "usr/local/bin/"
+cp uro "/usr/local/bin"
 
 echo "[*] Verifying installations..."
 
@@ -64,4 +63,5 @@ fi
 echo "[✓] katana installed: $(katana -version 2>/dev/null || echo OK)"
 echo "[✓] uro installed: $(uro --help >/dev/null 2>&1 && echo OK)"
 
+echo "[✓]You are all set to start using SQLFiner"
 echo "done"
