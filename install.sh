@@ -36,9 +36,9 @@ sudo cp katana/katana /usr/local/bin
 echo "[*] Installing uro..."
 if ! command -v pipx >/dev/null 2>&1; then
   echo "[!] pipx not found. Installing pipx..."
-  python3 -m pip install --user pipx --break-system-packages
-  python3 -m pipx ensurepath
-  export PATH="$PATH:$HOME/.local/bin"
+  sudo python3 -m pip install --user pipx --break-system-packages
+  sudo python3 -m pipx ensurepath
+  sudo export PATH="$PATH:$HOME/.local/bin"
 fi
 
 git clone https://github.com/s0md3v/uro
