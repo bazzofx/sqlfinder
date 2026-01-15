@@ -1,7 +1,6 @@
 #!/bin/bash
 # sqlfinder v1.1
 #Intensive scan enabled
-set -euo
 # ---------------- Colors ----------------
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -12,8 +11,13 @@ NC='\033[0m'
 WARNING="⚠️"
 CHECK="✓"
 
+set -euo pipefail
+
 verbose=false
-headers=false
+header=false
+intense=false
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # ---------------- Help ----------------
 show_help() {
   cat << 'EOF'
@@ -136,10 +140,10 @@ curl_cmd() {
   local url="$1"
   local output
 
-  curl -s -o /dev/null -w "%{http_code}" \
+  output=$(curl -s -o /dev/null -w "%{http_code}" \
     --parallel --parallel-max "$threads" \
     ${header:+-H "$header"} \
-    "$1"
+    "$1")
 
   if [ -n "$verbose" ]; then
   echo "$url" 1>&2
@@ -171,7 +175,7 @@ if [ -n "$threads" ]; then
     echo -e "Scanning using ${GREEN}$threads${NC} parallel jobs"
 fi
 
-if [ -z "intensive" ]; then
+if [ "intensive" = false ]; then
 banner=$(cat << 'EOF'
                           ░▀█▀░█▀█░▀█▀░█▀▀░█▀█░█▀▀░▀█▀░█░█░█▀▀
                           ░░█░░█░█░░█░░█▀▀░█░█░▀▀█░░█░░▀▄▀░█▀▀
@@ -209,6 +213,10 @@ while IFS= read -r url; do
     echo -e "Reason: ${BLUE}Boolean condition difference${NC}"
     vulnerable=true
   fi
+if [[ "$url" == *"?"* ]]; then
+"$SCRIPT_DIR/second.sh" "$url"
+fi
+
 
   # ---- Stage 3: quoted injection (only if not vulnerable)
   if [ "$vulnerable" = false ] \
