@@ -1,5 +1,5 @@
 #!/bin/bash
-# sqlfinder v1.9
+# sqlfinder v1.1
 #Intensive scan enabled
 # ---------------- Colors ----------------
 RED='\033[0;31m'
@@ -78,12 +78,13 @@ if [[ "$1" != -* ]]; then
 fi
 
 # ---------------- Parse flags ----------------
-while getopts ":H:t:f:hi" opt; do
+while getopts ":H:t:f:hiv" opt; do
   case "$opt" in
     H) header="$OPTARG" ;;
     t) threads="$OPTARG" ;;
     f) file="$OPTARG" ;;
     i) intense=true ;;
+    v) verbose=false ;;
     h)
       show_help
       exit 0
@@ -118,10 +119,18 @@ fi
 
 # ---------------- Curl helper ----------------
 curl_cmd() {
+  local url="$1"
+  local output
+
   curl -s -o /dev/null -w "%{http_code}" \
     --parallel --parallel-max "$threads" \
     ${header:+-H "$header"} \
     "$1"
+
+  if [ -n "$verbose" ]; then
+  echo "$url" 1>&2
+  fi 
+  echo "$output"  
 }
 
 # ---------------- Curl time helper ----------------
@@ -139,11 +148,16 @@ collect_urls() {
   katana -u "$target" -jsl -silent\
     ${header:+-H "$header"} 2>/dev/null \
   | uro \
-  | grep -Ev '\.(js|tsx|php|html|htm)(\?|$)'
+  | grep -Ev '\.(js|tsx|php|html|htm)(\?|$)'\
+  | sed 's/=[^&[:space:]]*/=/'
 }
 
 # ---------------- INITIALIZE ---------------
 clear
+if [ -n "$verbose" ]; then
+  echo -e "Verbose output enabled"
+fi
+
 if [ -n "$header" ]; then
     echo -e "${GREEN}-----------------------------------Authenticated Scan-----------------------------------${NC}"
 else
@@ -154,7 +168,7 @@ if [ -n "$threads" ]; then
     echo -e "Scanning using ${GREEN}$threads${NC} parallel jobs"
 fi
 
-if [ -n "intensive" ]; then
+if [ -z "intensive" ]; then
 banner=$(cat << 'EOF'
                           ░▀█▀░█▀█░▀█▀░█▀▀░█▀█░█▀▀░▀█▀░█░█░█▀▀
                           ░░█░░█░█░░█░░█▀▀░█░█░▀▀█░░█░░▀▄▀░█▀▀
@@ -269,7 +283,7 @@ fi
 
   # ---- Final safe output
   if [ "$vulnerable" = false ]; then
-    echo -e "${GREEN}${CHECK}${NC} $url"
+    echo -e "${GREEN}[ ${CHECK} ] $url${NC}"
   fi
 
 done <<< "$urls"
