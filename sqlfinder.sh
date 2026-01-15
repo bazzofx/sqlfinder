@@ -1,6 +1,7 @@
 #!/bin/bash
 # sqlfinder v1.1
 #Intensive scan enabled
+
 # ---------------- Colors ----------------
 RED='\033[0;31m'
 GREEN='\033[0;32m'
