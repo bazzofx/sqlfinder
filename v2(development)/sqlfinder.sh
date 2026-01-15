@@ -214,7 +214,7 @@ while IFS= read -r url; do
     vulnerable=true
   fi
 if [[ "$url" == *"?"* ]]; then
-"$SCRIPT_DIR/second.sh" "$url"
+"$SCRIPT_DIR/sqlfinder.sh" "$url"
 fi
 
 

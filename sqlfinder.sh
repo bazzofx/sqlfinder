@@ -210,6 +210,7 @@ while IFS= read -r url; do
     vulnerable=true
   fi
 
+
   # ---- Stage 3: quoted injection (only if not vulnerable)
   if [ "$vulnerable" = false ] \
      && [ "$trueCheck" -gt 199 ] \
