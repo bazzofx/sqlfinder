@@ -1,7 +1,9 @@
 #!/bin/bash
-# sqlfinder v1.1
+# sqlfinder v1.2
 #Intensive scan enabled
+#Added Count Check on pages
 # ---------------- Colors ----------------
+#-- Version Dev 1.1
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -11,11 +13,16 @@ NC='\033[0m'
 WARNING="⚠️"
 CHECK="✓"
 
-set -euo pipefail
+#set -euo pipefail
 
+# -------------- DEFAULTS
+threads=20
+file=""
+
+vulnerable=false
 verbose=false
-header=false
-intense=false
+header=""
+intensive=false
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # ---------------- Help ----------------
@@ -64,10 +71,6 @@ Description:
 EOF
 }
 
-# ---------------- Defaults ----------------
-threads=10
-file=""
-vulnerable=false
 
 # ---------------- Handle --help ----------------
 for arg in "$@"; do
@@ -90,8 +93,8 @@ while getopts ":H:t:f:hiv" opt; do
     H) header="$OPTARG" ;;
     t) threads="$OPTARG" ;;
     f) file="$OPTARG" ;;
-    i) intense=true ;;
-    v) verbose=false ;;
+    i) intensive=true ;;
+    v) verbose=true ;;
     h)
       show_help
       exit 0
@@ -108,7 +111,11 @@ while getopts ":H:t:f:hiv" opt; do
   esac
 done
 
-# ---------------- Validate input ----------------
+#------------------DEBUG
+
+
+
+#Validate input ----------------
 if [ -n "$file" ] && [ -n "$target" ]; then
   echo "Error: Use either a target OR a file, not both"
   exit 1
@@ -145,7 +152,7 @@ curl_cmd() {
     ${header:+-H "$header"} \
     "$1")
 
-  if [ -n "$verbose" ]; then
+  if [ "$verbose" = true ]; then
   echo "$url" 1>&2
   fi 
   echo "$output"  
@@ -161,11 +168,11 @@ curl_time() {
 
 # ---------------- INITIALIZE ---------------
 clear
-if [ -n "$verbose" ]; then
+if [[ "$verbose" == true ]]; then
   echo -e "Verbose output enabled"
 fi
 
-if [ -n "$header" ]; then
+if [[ -n "$header" ]]; then
     echo -e "${GREEN}-----------------------------------Authenticated Scan-----------------------------------${NC}"
 else
     echo -e "${YELLOW}------------------------------Non Authenticated Scan------------------------------${NC}"
@@ -175,7 +182,7 @@ if [ -n "$threads" ]; then
     echo -e "Scanning using ${GREEN}$threads${NC} parallel jobs"
 fi
 
-if [ "intensive" = false ]; then
+if [[ "$intensive" == true ]]; then
 banner=$(cat << 'EOF'
                           ░▀█▀░█▀█░▀█▀░█▀▀░█▀█░█▀▀░▀█▀░█░█░█▀▀
                           ░░█░░█░█░░█░░█▀▀░█░█░▀▀█░░█░░▀▄▀░█▀▀
@@ -213,9 +220,10 @@ while IFS= read -r url; do
     echo -e "Reason: ${BLUE}Boolean condition difference${NC}"
     vulnerable=true
   fi
-if [[ "$url" == *"?"* ]]; then
-"$SCRIPT_DIR/sqlfinder.sh" "$url"
-fi
+#if [ "$url" == *"?"* ]; then
+echo "Runnig Comparison check on ${GREEN}$url${NC}"
+"$SCRIPT_DIR/second.sh" "$url" || true
+#fi
 
 
   # ---- Stage 3: quoted injection (only if not vulnerable)
