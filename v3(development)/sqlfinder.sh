@@ -26,6 +26,7 @@ intensive=false
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # ---------------- Help ----------------
+
 show_help() {
   cat << 'EOF'
 
@@ -221,10 +222,10 @@ while IFS= read -r url; do
     vulnerable=true
   fi
 
-echo "Runnig Comparison check on ${GREEN}$url${NC}"
+#echo -e "Runnig Comparison check on ${GREEN}$url${NC}"
 "$SCRIPT_DIR/sqlDiffFinder.sh" "$url" || true
 
-echo "Running Login SQL Injection Test ${GREEN}$url${NC}"
+#echo -e "Running Login SQL Injection Test ${GREEN}$url${NC}"
 "$SCRIPT_DIR/sqlogin.sh" "$url" || true
 
 
