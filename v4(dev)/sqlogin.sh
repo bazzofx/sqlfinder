@@ -143,10 +143,12 @@ test_login_sqli() {
     if ! is_login_page "$html"; then
        # echo "[-] Not a login page"
         return 1
-    fi
-    
+    else
     echo "[+] Login page detected"
     echo "Attempting to SQL Inject Login Page"
+    fi
+    
+
     # Step 2: Extract form details
     form_details=$(extract_login_form "$html")
     action_url=$(echo "$form_details" | cut -d'|' -f1)
