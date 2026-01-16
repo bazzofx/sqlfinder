@@ -96,8 +96,8 @@ check_pattern_changes() {
         "product" "item" "row" "record" "entry"
         "<div>" "<tr>" "<li>" "<img " "href="
     )
-    ${YELLOW}
-    echo "    Element Count Analysis:"
+    
+    echo "Element Count Analysis:"
     for pattern in "${patterns[@]}"; do
         orig_count=$(echo "$original_body" | grep -c "$pattern")
         sql_count=$(echo "$sql_body" | grep -c "$pattern")
@@ -259,8 +259,8 @@ fi
             
             # Try to identify what changed (product count, etc.)
             echo "    Element Count Analysis:"
-            echo "      Original: $original_count HTML elements"
-            echo "      SQL test: $sql_count HTML elements"
+            echo "       Original: $original_count HTML elements"
+            echo "       SQL test: $sql_count HTML elements"
     
             
             # Check for common patterns

