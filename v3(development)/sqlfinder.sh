@@ -220,10 +220,12 @@ while IFS= read -r url; do
     echo -e "Reason: ${BLUE}Boolean condition difference${NC}"
     vulnerable=true
   fi
-#if [ "$url" == *"?"* ]; then
+
 echo "Runnig Comparison check on ${GREEN}$url${NC}"
-"$SCRIPT_DIR/second.sh" "$url" || true
-#fi
+"$SCRIPT_DIR/sqlDiffFinder.sh" "$url" || true
+
+echo "Running Login SQL Injection Test ${GREEN}$url${NC}"
+"$SCRIPT_DIR/sqlogin.sh" "$url" || true
 
 
   # ---- Stage 3: quoted injection (only if not vulnerable)
