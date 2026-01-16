@@ -397,6 +397,6 @@ echo "$urls" | while IFS= read -r url; do
     echo -e "${GREEN}[ ${CHECK} ] $url${NC}"
   fi
 
-  echo  # Blank line between URLs
+  #echo  # Blank line between URLs
   
 done
