@@ -96,15 +96,15 @@ check_pattern_changes() {
         "product" "item" "row" "record" "entry"
         "<div>" "<tr>" "<li>" "<img " "href="
     )
-    
-    echo "Element Count Analysis:"
+    ${YELLOW}
+    echo "    Element Count Analysis:"
     for pattern in "${patterns[@]}"; do
         orig_count=$(echo "$original_body" | grep -c "$pattern")
         sql_count=$(echo "$sql_body" | grep -c "$pattern")
         
         if [ "$orig_count" -ne "$sql_count" ]; then
             change=$(( sql_count - orig_count ))
-            echo -e "      $pattern: ${orig_count} ${YELLOW}→{$NC} ${sql_count} (${+change})"
+            echo -e "      $pattern: ${orig_count} → ${sql_count} (+${change})"
         fi
     done
     
@@ -242,8 +242,8 @@ detect_sqli() {
     
 if [[ "$original_title" != "$sql_title" ]]; then
     echo -e "${RED}⚠️ Title changed!${NC}"
-    echo "    Original: $original_title"
-    echo "    SQL test: $sql_title"
+    echo "Original: $original_title"
+    echo "SQL test: $sql_title"
 fi
     
     echo
@@ -252,16 +252,15 @@ fi
     if [ "$sql_count" -gt "$original_count" ]; then
         if [ $increase_pct -ge $THRESHOLD_PERCENT ]; then
             echo -e "${RED}[VULNERABLE] ⚠️ POSSIBLE SQL INJECTION VULNERABILITY DETECTED!${NC}"
-            echo "    URL: $url"
-            echo "    Payload: $payload"
+            echo -e "    URL: ${YELLOW}$url${NC}"
+            echo -e "    Payload: ${YELLOW}$payload${NC}"
+            echo -e "    Reason: ${BLUE}Elements on page increased$ ${increase_pct}% (${original_count} → ${sql_count})${NC}"
             echo ""
-            echo -e "Reason: ${BLUE}Elements on page increased$ ${increase_pct}% (${original_count} → ${sql_count})${NC}"
-            echo "     "
             
             # Try to identify what changed (product count, etc.)
-            echo "Element Count Analysis:"
-            echo "  Original: $original_count HTML elements"
-            echo "  SQL test: $sql_count HTML elements"
+            echo "    Element Count Analysis:"
+            echo "      Original: $original_count HTML elements"
+            echo "      SQL test: $sql_count HTML elements"
     
             
             # Check for common patterns
