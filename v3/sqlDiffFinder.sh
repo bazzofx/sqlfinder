@@ -1,5 +1,5 @@
 #!/bin/bash
-
+# sqlfinder v3
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -41,6 +41,7 @@ show_help() {
     echo "  -t, --threshold <NUM>    Percentage threshold (default: 30)"
     echo "  -h, --help               Show this help"
     echo "  -v, --verbose            Show verbose output"
+    echo "   -H <header>             Add custom HTTP header"
     echo
     echo "Examples:"
     echo "  $0 -u \"https://example.com/page?id=1\""
@@ -60,6 +61,7 @@ curl_cmd() {
     local url="$1"
     curl -s -L \
         --max-time "$TIMEOUT" \
+        ${header:+-H "$header"}\
         --user-agent "$USER_AGENT" \
         --cookie "$COOKIE_FILE" \
         --cookie-jar "$COOKIE_FILE" \
@@ -290,42 +292,42 @@ main() {
     local urls_file=""
     local payload="' OR '1'='1'-- -"
     
-    while [[ $# -gt 0 ]]; do
-        case $1 in
-            -u|--url)
-                url="$2"
-                shift 2
-                ;;
-            -f|--file)
-                urls_file="$2"
-                shift 2
-                ;;
-            -p|--payload)
-                payload="$2"
-                shift 2
-                ;;
-            -t|--threshold)
-                THRESHOLD_PERCENT="$2"
-                shift 2
-                ;;
-            -v|--verbose)
-                verbose=true
-                shift 2
-                ;;                
-            -h|--help)
-                show_help
-                exit 0
-                ;;
-            *)
-                # Assume it's a URL if no flag
-                if [ -z "$url" ]; then
-                    url="$1"
-                fi
-                shift
-                ;;
-        esac
-    done
-    
+while getopts ":u:f:H:p:t:vh" opt; do
+  case "$opt" in
+    u) url="$OPTARG" ;;
+    f) urls_file="$OPTARG" ;;
+    H) header="$OPTARG" ;;
+    p) payload="$OPTARG" ;;
+    t) THRESHOLD_PERCENT="$OPTARG" ;;
+    v) verbose=true ;;
+    h)
+      show_help
+      exit 0
+      ;;
+    :)
+      echo "Error: Option -$OPTARG requires an argument"
+      exit 1
+      ;;
+    \?)
+      echo "Invalid option: -$OPTARG"
+      show_help
+      exit 1
+      ;;
+  esac
+done
+
+# Shift processed options away
+shift $((OPTIND - 1))
+
+# Handle any remaining arguments as URL if -u was not used
+if [ -z "$url" ] && [ $# -gt 0 ]; then
+    url="$1"
+fi
+
+if [[-n $header]]; then
+echo "Running Authenticated Comparisson"
+fi
+
     # Run appropriate test
     if [ -n "$urls_file" ]; then
         test_multiple_urls "$urls_file"

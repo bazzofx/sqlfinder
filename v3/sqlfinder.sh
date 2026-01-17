@@ -1,5 +1,5 @@
 #!/bin/bash
-# sqlfinder v1.2
+# sqlfinder v3
 #Intensive scan enabled
 #Added Count Check on pages
 # ---------------- Colors ----------------
@@ -263,8 +263,11 @@ while IFS= read -r url; do
   fi
 
 #echo -e "Runnig Comparison check on ${GREEN}$url${NC}"
+if [[ -n "$header" ]]; then
+"$SCRIPT_DIR/sqlDiffFinder.sh" "$url"  -H "$header" || true
+else
 "$SCRIPT_DIR/sqlDiffFinder.sh" "$url" || true
-
+fi
 #echo -e "Running Login SQL Injection Test ${GREEN}$url${NC}"
 "$SCRIPT_DIR/sqlogin.sh" "$url" || true
 
