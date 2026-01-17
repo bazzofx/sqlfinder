@@ -326,9 +326,9 @@ if [ -z "$url" ] && [ $# -gt 0 ]; then
     url="$1"
 fi
 
-if [[ -n $header ]]; then
-echo "Running Authenticated Comparisson"
-fi
+#if [[ -n $header ]]; then
+#echo "Running Authenticated Comparisson"
+#fi
 
     # Run appropriate test
     if [ -n "$urls_file" ]; then
