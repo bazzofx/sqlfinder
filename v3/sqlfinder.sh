@@ -264,9 +264,9 @@ while IFS= read -r url; do
 
 #echo -e "Runnig Comparison check on ${GREEN}$url${NC}"
 if [[ -n "$header" ]]; then
-"$SCRIPT_DIR/sqlDiffFinder.sh" "$url"  -H "$header" || true
+"$SCRIPT_DIR/sqlDiffFinder.sh" -u "$url"  -H "$header" || true
 else
-"$SCRIPT_DIR/sqlDiffFinder.sh" "$url" || true
+"$SCRIPT_DIR/sqlDiffFinder.sh" -u "$url" || true
 fi
 #echo -e "Running Login SQL Injection Test ${GREEN}$url${NC}"
 "$SCRIPT_DIR/sqlogin.sh" "$url" || true
