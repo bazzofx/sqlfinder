@@ -251,7 +251,6 @@ if [[ "$original_title" != "$sql_title" ]]; then
     echo "SQL test: $sql_title"
 fi
     
-    echo
     
     # Detection logic
     if [ "$sql_count" -gt "$original_count" ]; then
