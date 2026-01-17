@@ -131,7 +131,10 @@ curl_request() {
 test_login_sqli() {
     local base_url="$1"
     
-   
+
+
+    echo "Attempting to SQL Inject Login Page"
+    
     # Step 1: Fetch the login page
     #echo "[*] Fetching login page..."
     response=$(curl_request "$base_url" "GET" "" 0)
@@ -145,8 +148,8 @@ test_login_sqli() {
         return 1
     fi
     
-    echo "[+] Login page detected"
-    echo "Attempting to SQL Inject Login Page"
+    #echo "[+] Login page detected"
+    
     # Step 2: Extract form details
     form_details=$(extract_login_form "$html")
     action_url=$(echo "$form_details" | cut -d'|' -f1)

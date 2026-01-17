@@ -131,7 +131,7 @@ curl_request() {
 test_login_sqli() {
     local base_url="$1"
     
-   
+  
     # Step 1: Fetch the login page
     #echo "[*] Fetching login page..."
     response=$(curl_request "$base_url" "GET" "" 0)
@@ -143,12 +143,10 @@ test_login_sqli() {
     if ! is_login_page "$html"; then
        # echo "[-] Not a login page"
         return 1
-    else
-    echo "[+] Login page detected"
-    echo "Attempting to SQL Inject Login Page"
     fi
     
-
+    #echo "[+] Login page detected"
+    
     # Step 2: Extract form details
     form_details=$(extract_login_form "$html")
     action_url=$(echo "$form_details" | cut -d'|' -f1)
@@ -211,7 +209,7 @@ test_login_sqli() {
     vulnerable=0
     for payload in "${payloads[@]}"; do
     # Encode payload for URL
-        #echo "    Trying payload: $payload"
+        echo "    Trying payload: $payload"
         
         # Build SQLi data
         sqli_data=""
