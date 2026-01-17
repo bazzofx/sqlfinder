@@ -57,11 +57,14 @@ show_help() {
 
 
 # Curl wrapper with common options
+# Curl wrapper with common options
 curl_cmd() {
     local url="$1"
+    local custom_header="${2:-}"  # Accept header as second parameter
+    
     curl -s -L \
         --max-time "$TIMEOUT" \
-        ${header:+-H "$header"}\
+        ${custom_header:+-H "$custom_header"} \
         --user-agent "$USER_AGENT" \
         --cookie "$COOKIE_FILE" \
         --cookie-jar "$COOKIE_FILE" \
@@ -182,7 +185,7 @@ detect_sqli() {
     
     # Make original request
     #echo "[*] Making original request..."
-    original_response=$(curl_cmd "$url")
+    original_response=$(curl_cmd "$url" "$header")
     original_status=$(echo "$original_response" | tail -1)
     original_body=$(echo "$original_response" | extract_body)
     
@@ -214,7 +217,7 @@ detect_sqli() {
         test_url="${url}?test${encoded_payload}"
     fi
     
-    sql_response=$(curl_cmd "$test_url")
+    sql_response=$(curl_cmd "$test_url" "$header")
     sql_status=$(echo "$sql_response" | tail -1)
     sql_body=$(echo "$sql_response" | extract_body)
     
