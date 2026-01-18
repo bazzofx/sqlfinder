@@ -143,6 +143,34 @@ curl_body() {
   curl -s "${CURL_ARGS[@]}" "$1"
 }
 
+# Creates variation on the url from the collect_urls - Katana | uro output
+add_number_variations() {
+    local exceptions=("cart" "checkout" "logout" "login" "profile" "settings" "account")
+    
+    while IFS= read -r url; do
+        [[ -z "$url" ]] && continue
+        # Check if URL already ends with a number
+        if [[ "$url" =~ /[0-9]+$ ]]; then
+            echo "$url"
+            continue
+        fi
+        # Check if URL ends with any exception word
+        skip=false
+        for exception in "${exceptions[@]}"; do
+            if [[ "$url" =~ /${exception}$ ]]; then
+                echo "$url"
+                skip=true
+                break
+            fi
+        done
+        [[ "$skip" == true ]] && continue
+        # If not, create variations with numbers 1-3
+        echo "$url"
+        for i in {1..3}; do
+            echo "${url}/${i}"
+        done
+    done
+}
 # ---------------- Website Crawler and URL Filtering ----------------
 collect_urls() {
   local target="$1"
@@ -218,7 +246,7 @@ echo -e "${GREEN}Initializing Scan on target:${NC} ${YELLOW}${target}${NC}"
 if [[ -n "$file" ]]; then
   urls="$(cat "$file")"
 else
-  urls="$(collect_urls "$target")"
+  urls="$(collect_urls "$target" | add_number_variations)"
 fi
 
 # ---------------- Scan loop ----------------
