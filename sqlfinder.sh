@@ -308,7 +308,7 @@ fi
 
 #echo -e "Running Login SQL Injection Test ${GREEN}$url${NC}"
 "$SCRIPT_DIR/sqlogin.sh" "$url" || true
-
+fi
 
   # ---- Stage 3: quoted injection (only if not vulnerable)
   if [[ "$vulnerable" == false ]] \
