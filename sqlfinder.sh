@@ -117,17 +117,17 @@ done
 
 
 #Validate input ----------------
-if [ -n "$file" ] && [ -n "$target" ]; then
+if [[ -n "$file" ]] && [[ -n "$target" ]]; then
   echo "Error: Use either a target OR a file, not both"
   exit 1
 fi
 
-if [ -z "$file" ] && [ -z "$target" ]; then
+if [[ -z "$file" ]] && [[ -z "$target" ]]; then
   show_help
   exit 1
 fi
 
-if [ -n "$file" ] && [ ! -f "$file" ]; then
+if [[ -n "$file" ]] && [[ ! -f "$file" ]]; then
   echo "Error: File not found: $file"
   exit 1
 fi
@@ -136,44 +136,54 @@ fi
 
 # ---------------- Curl body helper (for JavaScript check) ----------------
 curl_body() {
-  curl -s \
-    ${header:+-H "$header"} \
-    "$1"
+  local CURL_ARGS=()
+  
+  [[ -n "$header" ]] && CURL_ARGS+=(-H "$header")
+  
+  curl -s "${CURL_ARGS[@]}" "$1"
 }
 
 # ---------------- Website Crawler and URL Filtering ----------------
 collect_urls() {
   local target="$1"
+  local KATANA_ARGS=()
 
-  katana -u "$target" -jsl -silent\
-    ${header:+-H "$header"} 2>/dev/null \
-  | uro \
-  | grep -Ev '\.(js|tsx|php|html|htm)(\?|$)'\
-  | sed 's/=[^&[:space:]]*/=/'
+  KATANA_ARGS=(-u "$target" -jsl -silent)
+  [[ -n "$header" ]] && KATANA_ARGS+=(-H "$header")
+
+  katana "${KATANA_ARGS[@]}" 2>/dev/null \
+    | uro \
+    | grep -Ev '\.(js|tsx|php|html|htm)(\?|$)' \
+    | sed 's/=[^&[:space:]]*/=/'
 }
 
 # ---------------- Curl helper ----------------
 curl_cmd() {
   local url="$1"
   local output
+  local CURL_ARGS=()
 
-  output=$(curl -s -o /dev/null -w "%{http_code}" \
-    --parallel --parallel-max "$threads" \
-    ${header:+-H "$header"} \
-    "$1")
+  CURL_ARGS=(-s -o /dev/null -w "%{http_code}" --parallel --parallel-max "$threads")
+  [[ -n "$header" ]] && CURL_ARGS+=(-H "$header")
+  CURL_ARGS+=("$url")
 
-  if [ "$verbose" = true ]; then
-  echo "$url" 1>&2
+  output=$(curl "${CURL_ARGS[@]}")
+  
+  if [[ "$verbose" == true ]]; then
+    echo "$url" 1>&2
   fi 
   echo "$output"  
 }
 
 # ---------------- Curl time helper ----------------
 curl_time() {
-  curl -s -o /dev/null \
-    -w "%{time_total}" \
-    ${header:+-H "$header"} \
-    "$1"
+  local CURL_ARGS=()
+  
+  CURL_ARGS=(-s -o /dev/null -w "%{time_total}")
+  [[ -n "$header" ]] && CURL_ARGS+=(-H "$header")
+  CURL_ARGS+=("$1")
+  
+  curl "${CURL_ARGS[@]}"
 }
 
 # ---------------- INITIALIZE ---------------
@@ -188,7 +198,7 @@ else
     echo -e "${YELLOW}------------------------------Non Authenticated Scan------------------------------${NC}"
 fi
 
-if [ -n "$threads" ]; then
+if [[ -n "$threads" ]]; then
     echo -e "Scanning using ${GREEN}$threads${NC} parallel jobs"
 fi
 
@@ -205,7 +215,7 @@ fi
 echo -e "${GREEN}Initializing Scan on target:${NC} ${YELLOW}${target}${NC}"
 
 # ---------------- URL source ----------------
-if [ -n "$file" ]; then
+if [[ -n "$file" ]]; then
   urls="$(cat "$file")"
 else
   urls="$(collect_urls "$target")"
@@ -227,7 +237,7 @@ declare -a falsePositiveResponse=(
 
 
 while IFS= read -r url; do
-  [ -z "$url" ] && continue
+  [[ -z "$url" ]] && continue
   vulnerable=false
 
   # ---- Stage 0: False positive response check (FIRST check before anything else)
@@ -243,19 +253,19 @@ while IFS= read -r url; do
     fi
   done
   
-  if [ "$skip_url" = true ]; then
+  if [[ "$skip_url" == true ]]; then
     continue
   fi
 
   # ---- Stage 1: base check (skip dead only)
   base_code=$(curl_cmd "$url")
-  [ "$base_code" = "000" ] && continue
+  [[ "$base_code" == "000" ]] && continue
 
   # ---- Stage 2: boolean injection
   trueCheck=$(curl_cmd "${url}/1%20AND%201=1--%20-")
   falseCheck=$(curl_cmd "${url}/1%20AND%202=1--%20-")
 
-  if [ "$trueCheck" = "200" ] && [ "$falseCheck" != "200" ]; then
+  if [[ "$trueCheck" == "200" ]] && [[ "$falseCheck" != "200" ]]; then
     echo -e "${WARNING}${RED} VULNERABLE${NC} $url"
     echo -e "Payload: ${YELLOW}${url}/1 AND 2=1-- -${NC}"
     echo -e "Reason: ${BLUE}Boolean condition difference${NC}"
@@ -273,14 +283,14 @@ fi
 
 
   # ---- Stage 3: quoted injection (only if not vulnerable)
-  if [ "$vulnerable" = false ] \
-     && [ "$trueCheck" -gt 199 ] \
-     && [ "$falseCheck" -gt 300 ]; then
+  if [[ "$vulnerable" == false ]] \
+     && [[ "$trueCheck" -gt 199 ]] \
+     && [[ "$falseCheck" -gt 300 ]]; then
 
     trueCheck2=$(curl_cmd "${url}/'1%20AND%201=1--%20-")
     falseCheck2=$(curl_cmd "${url}/'1%20AND%202=1--%20-")
 
-    if [ "$trueCheck2" = "200" ] && [ "$falseCheck2" != "200" ]; then
+    if [[ "$trueCheck2" == "200" ]] && [[ "$falseCheck2" != "200" ]]; then
       echo -e "${WARNING}${RED} VULNERABLE${NC} $url"
       echo -e "Payload: ${YELLOW}${url}/'1 AND 2=1-- -${NC}"
       echo -e "Reason: ${BLUE}Quoted boolean injection${NC}"
@@ -289,7 +299,7 @@ fi
   fi
 
 # ---- Stage 4: Advanced SQLi (only if still not vulnerable)
-if [ "$vulnerable" = false ] && [ "$intensive" = true ]; then
+if [[ "$vulnerable" == false ]] && [[ "$intensive" == true ]]; then
   echo "Performing Intensive Scan..."
   baseline_time=$(curl_time "$url")
 
@@ -321,7 +331,7 @@ if [ "$vulnerable" = false ] && [ "$intensive" = true ]; then
       end=$(date +%s)
       diff=$((end - start))
 
-      if [ "$diff" -ge 5 ]; then
+      if [[ "$diff" -ge 5 ]]; then
         echo -e "${WARNING}${RED} VULNERABLE${NC} $url"
         echo -e "Payload: ${YELLOW}${test_url}${NC}"
         echo -e "Reason: ${BLUE}Time-based SQL injection (delay ${diff}s)${NC}"
@@ -332,7 +342,7 @@ if [ "$vulnerable" = false ] && [ "$intensive" = true ]; then
       # ---- Error / UNION / stacked detection.
       code=$(curl_cmd "$test_url")
 
-      if [ "$code" != "$base_code" ] && [ "$code" != "404" ]; then
+      if [[ "$code" != "$base_code" ]] && [[ "$code" != "404" ]]; then
         echo -e "${WARNING}${RED} VULNERABLE${NC} $url"
         echo -e "Payload: ${YELLOW}${test_url}${NC}"
         echo -e "Reason: ${BLUE}Response anomaly (status $base_code → $code)${NC}"
@@ -347,7 +357,7 @@ fi
 
 
   # ---- Final safe output
-  if [ "$vulnerable" = false ]; then
+  if [[ "$vulnerable" == false ]]; then
     echo -e "${GREEN}[ ${CHECK} ] $url${NC}"
   fi
 
