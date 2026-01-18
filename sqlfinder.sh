@@ -399,7 +399,7 @@ if [[ ${#true_payloads[@]} -gt 0 ]] && [[ ${#false_payloads[@]} -gt 0 ]]; then
   fi
   
   "$SCRIPT_DIR/sqlogin.sh" "$url" || true
-fi
+
 
 # Additional check: ORDER BY incremental testing
 if [[ "$vulnerable" == false ]] && [[ "$intensive" == true ]]; then
