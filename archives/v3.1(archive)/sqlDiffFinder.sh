@@ -1,5 +1,5 @@
 #!/bin/bash
-# sqlfinder v3.1
+# sqlfinder v3
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -99,7 +99,7 @@ check_pattern_changes() {
     # Common patterns to check
     patterns=(
         "product" "item" "row" "record" "entry"
-        "<div>" "<tr>" "<li>" "<img " "href= <pre>"
+        "<div>" "<tr>" "<li>" "<img " "href="
     )
     
     echo "Element Count Analysis:"

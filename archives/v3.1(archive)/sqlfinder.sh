@@ -1,5 +1,5 @@
 #!/bin/bash
-# sqlfinder v3.1
+# sqlfinder v3
 #Intensive scan enabled
 #Added Count Check on pages
 # ---------------- Colors ----------------
@@ -215,7 +215,6 @@ fi
 # Add this array for false positive response patterns
 declare -a falsePositiveResponse=(
     "You need to enable JavaScript to run this app"
-  fi
     "Please enable JavaScript"
     "JavaScript is required"
     "enable javascript"
@@ -261,6 +260,7 @@ while IFS= read -r url; do
     echo -e "Payload: ${YELLOW}${url}/1 AND 2=1-- -${NC}"
     echo -e "Reason: ${BLUE}Boolean condition difference${NC}"
     vulnerable=true
+  fi
 
 #echo -e "Runnig Comparison check on ${GREEN}$url${NC}"
 if [[ -n "$header" ]]; then
