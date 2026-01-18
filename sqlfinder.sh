@@ -151,7 +151,7 @@ add_number_variations() {
         [[ -z "$url" ]] && continue
         # Check if URL already ends with a number
         if [[ "$url" =~ /[0-9]+$ ]]; then
-            echo "$url"
+            echo "This URL ends with number $url"
             continue
         fi
         # Check if URL ends with any exception word
