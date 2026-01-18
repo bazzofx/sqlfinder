@@ -78,35 +78,6 @@ extract_submit_fields() {
         sort -u
 }
 
-# Helper to check specific pattern changes
-check_pattern_changes() {
-    local original_body="$1"
-    local sql_body="$2"
-    
-    # Common patterns to check
-    patterns=(
-        "product" "item" "row" "record" "entry"
-        "<div>" "<tr>" "<li>" "<img " "href= <pre>"
-    )
-    
-    echo "Element Count Analysis:"
-    for pattern in "${patterns[@]}"; do
-        orig_count=$(echo "$original_body" | grep -c "$pattern")
-        sql_count=$(echo "$sql_body" | grep -c "$pattern")
-        
-        if [ "$orig_count" -ne "$sql_count" ]; then
-            change=$(( sql_count - orig_count ))
-            echo -e "      $pattern: ${orig_count} → ${sql_count} (+${change})"
-        fi
-    done
-    
-    # Check for SQL error messages
-    if echo "$sql_body" | grep -qiE "(sql syntax|syntax error|mysql.*error|postgresql.*error|oracle.*error)"; then
-        echo "    [!] SQL error message detected in sql_body"
-        echo "$sql_body"
-    fi
-}
-
 # =========================
 # SQL injection testing
 # =========================
@@ -126,11 +97,10 @@ test_input_sqli() {
         base_url="${url}?${field}=${base_value}"
     fi
 
-    local original_body
-    original_body=$(curl_body "$base_url")
-    local original_body_size
-    original_body_size=$(printf "%s" "$original_body" | wc -c)
-    
+    local baseline
+    baseline=$(curl_body "$base_url")
+    local baseline_size
+    baseline_size=$(printf "%s" "$baseline" | wc -c)
 
     for payload in "${SQLI_PAYLOADS[@]}"; do
         encoded=$(curl -sG \
@@ -146,16 +116,11 @@ test_input_sqli() {
             test_url="${url}?${field}=${encoded}&Submit=Submit"
         fi
 
-         # Check for common patterns
-         check_pattern_changes "$original_body" "$sql_body"
-
-
-
-        sql_body=$(curl_body "$test_url")
-        #echo -e "${YELLOW}$sql_body{$NC}" #DEBUG echo
-        sql_body_size=$(printf "%s" "$sql_body" | wc -c)
-        diff=$(( sql_body_size - original_body_size ))
-        echo "Difference in sql_body:$diff"
+        response=$(curl_body "$test_url")
+        #echo -e "${YELLOW}$response{$NC}" #DEBUG echo
+        response_size=$(printf "%s" "$response" | wc -c)
+        diff=$(( response_size - baseline_size ))
+        echo "Difference in response:$diff"
         if (( diff > 50 || diff < -50 )); then
             echo -e "${RED}[!] Possible SQLi on '$field' payload: $payload (Δ=$diff bytes)${NC}"
             return 0
@@ -174,22 +139,22 @@ test_page_for_sqli() {
 
     echo -e "${GREEN}[*] Analyzing: $url${NC}"
 
-    sql_body=$(curl_body "$url")
-#    echo "$sql_body"
+    response=$(curl_body "$url")
+#    echo "$response"
 echo -e "{$YELLOW}--------------------------------${NC}"
-submit_fields=$(extract_submit_fields "$sql_body")
+submit_fields=$(extract_submit_fields "$response")
 submit_field=$(echo "$submit_fields" | head -n1)
 echo "Submit Field:$submit_field"
 
 
-    if ! has_input_elements "$sql_body"; then
+    if ! has_input_elements "$response"; then
         echo -e "${YELLOW}[-] No input elements found${NC}"
         return
     fi
 
     echo -e "${GREEN}[+] Page contains input elements${NC}"
 
-    fields=$(extract_input_fields "$sql_body")
+    fields=$(extract_input_fields "$response")
     field_count=$(echo "$fields" | wc -l)
 
     echo -e "${BLUE}[+] Found $field_count input field(s):${NC}"
