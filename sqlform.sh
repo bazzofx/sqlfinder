@@ -222,7 +222,7 @@ submit_field=$(echo "$submit_fields" | head -n1)
     fields=$(extract_input_fields "$response")
     field_count=$(echo "$fields" | wc -l)
     echo -e "${BLUE}[+] Found $field_count input field(s):${NC}"
-    echo "$fields" | sed 's/^/  - /'
+    echo -e "$fields"  | sed 's/^/  - /'
 
 #--------------- Check Difference Count of Elements Place logic inside For Loop---------------------
 
