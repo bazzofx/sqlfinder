@@ -183,6 +183,7 @@ collect_urls() {
     | uro \
     | grep -Ev '\.(js|tsx|php|html|htm)(\?|$)' \
     | sed 's/=[^&[:space:]]*/=/'
+    | sed 's/:id//'
 }
 
 # ---------------- Curl helper ----------------
