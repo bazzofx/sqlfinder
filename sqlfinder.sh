@@ -182,7 +182,7 @@ collect_urls() {
   katana "${KATANA_ARGS[@]}" 2>/dev/null \
     | uro \
     | grep -Ev '\.(js|tsx|php|html|htm)(\?|$)' \
-    | sed 's/=[^&[:space:]]*/=/'
+    | sed 's/=[^&[:space:]]*/=/' \
     | sed 's/:id//'
 }
 
