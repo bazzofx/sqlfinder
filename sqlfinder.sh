@@ -216,19 +216,30 @@ curl_time() {
 }
 
 # ---------------- Test payload function ----------------
+# ---------------- Test payload function ----------------
 test_payload() {
   local url="$1"
   local payload="$2"
   local description="$3"
   
-  response_code=$(curl_cmd "${url}/${payload}")
+  # Get both status code and response body
+  local CURL_ARGS=()
+  CURL_ARGS=(-s -w "%{http_code}" --parallel --parallel-max "$threads")
+  [[ -n "$header" ]] && CURL_ARGS+=(-H "$header")
+  CURL_ARGS+=("${url}/${payload}")
+  
+  # Use a temporary file to capture response
+  local temp_file=$(mktemp)
+  response_code=$(curl "${CURL_ARGS[@]}" -o "$temp_file")
+  response_body=$(cat "$temp_file")
+  rm -f "$temp_file"
   
   # Check if response is 200 (true) or not 200 (false)
   if [[ "$response_code" == "200" ]]; then
     if [[ "$verbose" == true ]]; then
       echo -e "${BLUE}[*] Payload '$payload' returned TRUE (200)${NC}" 1>&2
     fi
-    echo "true"
+    echo "true $response_body"
   else
     if [[ "$verbose" == true ]]; then
       echo -e "${BLUE}[*] Payload '$payload' returned FALSE ($response_code)${NC}" 1>&2
@@ -358,7 +369,7 @@ while IFS= read -r url; do
   
   for pattern in "${falsePositiveResponse[@]}"; do
     if echo "$body_response" | grep -qi "$pattern"; then
-      echo "[-] Skipping (false positive): $url"
+      echo -e "${YELLOW}[-] Skipping (false positive): $url${NC}"
       echo -e "${BLUE}  Reason: Contains pattern: \"$pattern\"${NC}"
       skip_url=true
       break
@@ -385,11 +396,34 @@ while IFS= read -r url; do
   fi
 
   for payload in "${payloads[@]}"; do
-    result=$(test_payload "$url" "$payload" "Boolean test")
+    result_data=$(test_payload "$url" "$payload" "Boolean test")
+    result=$(echo "$result_data" | cut -d' ' -f1)
+    response_body=$(echo "$result_data" | cut -d' ' -f2- 2>/dev/null || echo "")
+    
     payload_results["$payload"]="$result"
     
     if [[ "$result" == "true" ]]; then
-      true_payloads+=("$payload")
+      # Check if this "true" response contains false positive patterns
+      is_false_positive=false
+      for pattern in "${falsePositiveResponse[@]}"; do
+        if echo "$response_body" | grep -qi "$pattern"; then
+          if [[ "$verbose" == true ]]; then
+            echo -e "${YELLOW}[*] True payload '$payload' contains false positive pattern: '$pattern'${NC}" 1>&2
+          fi
+          is_false_positive=true
+          break
+        fi
+      done
+      
+      if [[ "$is_false_positive" == false ]]; then
+        true_payloads+=("$payload")
+      else
+        # Treat it as false since it's a false positive
+        if [[ "$verbose" == true ]]; then
+          echo -e "${YELLOW}[*] Treating '$payload' as false (contains false positive pattern)${NC}" 1>&2
+        fi
+        false_payloads+=("$payload")
+      fi
     else
       false_payloads+=("$payload")
     fi
@@ -399,11 +433,11 @@ while IFS= read -r url; do
   if [[ ${#true_payloads[@]} -gt 0 ]] && [[ ${#false_payloads[@]} -gt 0 ]]; then
     echo -e "${WARNING}${RED} VULNERABLE${NC} $url"
     echo -e "Reason: ${BLUE}Boolean injection detected - different responses for different payloads${NC}"
-    echo -e "${BLUE}  True responses (200):${NC}"
+    echo -e "${BLUE}  True responses (200 without false positives):${NC}"
     for p in "${true_payloads[@]:0:3}"; do  # Show first 3 true payloads
       echo -e "    ${YELLOW}${url}/${p//%20/ }${NC}"
     done
-    echo -e "${BLUE}  False responses (not 200):${NC}"
+    echo -e "${BLUE}  False responses (not 200 or contains false positives):${NC}"
     for p in "${false_payloads[@]:0:3}"; do  # Show first 3 false payloads
       echo -e "    ${YELLOW}${url}/${p//%20/ }${NC}"
     done
