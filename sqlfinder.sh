@@ -357,7 +357,7 @@ while IFS= read -r url; do
   
   for pattern in "${falsePositiveResponse[@]}"; do
     if echo "$body_response" | grep -qi "$pattern"; then
-    if [[ $verbose == true]]; then
+    if [[ "$verbose" == true ]]; then
       echo -e "${YELLOW}[-] Skipping (false positive): $url${NC}"
       echo -e "${BLUE}  Reason: Contains pattern: \"$pattern\"${NC}"
     fi
