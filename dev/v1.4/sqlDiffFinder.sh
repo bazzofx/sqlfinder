@@ -16,7 +16,7 @@ USER_AGENT="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
 TIMEOUT=10
 COOKIE_FILE="/tmp/sqli_cookies.txt"
 
-
+CURL_ARGS=()
 
 
 #Clean up function
