@@ -181,7 +181,7 @@ collect_urls() {
 
   katana "${KATANA_ARGS[@]}" 2>/dev/null \
     | uro \
-    | grep -Ev '\.(js|tsx|php|html|htm)(\?|$)' \
+    | grep -Ev '\.(js|tsx|php|html|htm|json)(\?|$)' \
     | sed 's/=[^&[:space:]]*/=/' \
     | sed 's/:id//'
 }
@@ -369,8 +369,8 @@ while IFS= read -r url; do
   
   for pattern in "${falsePositiveResponse[@]}"; do
     if echo "$body_response" | grep -qi "$pattern"; then
-      echo -e "${YELLOW}[-] Skipping (false positive): $url${NC}"
-      echo -e "${BLUE}  Reason: Contains pattern: \"$pattern\"${NC}"
+      echo -e "[-] Skipping (false positive): $url"
+      echo -e "${BLUE}  Reason${NC}: Contains pattern: \"$pattern\""
       skip_url=true
       break
     fi
