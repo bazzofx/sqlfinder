@@ -11,6 +11,14 @@ declare -a falsePositiveResponse=(
 )
 
 declare -a payloads=(
+  # Simple payload  
+    "'"
+    "'--"
+    ";"
+    ";--"
+    "#"
+    "--"
+    "-- -"
   # Standard boolean injections
   "1%20AND%201=1--%20-"
   "1%20AND%202=1--%20-"
