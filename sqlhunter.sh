@@ -94,8 +94,8 @@ if [[ -z "$url" ]]; then
 fi
 
 echo "-------"
-echo "Loaded ${#falsePositiveResponse[@]} False Positive patterns"
-echo "Loaded ${#payloads[@]} Payload patterns"
+#echo "Loaded ${#falsePositiveResponse[@]} False Positive patterns"
+#echo "Loaded ${#payloads[@]} Payload patterns"
 
 # Create grep pattern from falsePositiveResponse array
 patterns=$(IFS='|'; echo "${falsePositiveResponse[*]}")
@@ -128,7 +128,9 @@ for url in "${urlList[@]}"; do
   
   # Get base URL (without trailing /number)
   base_url=$(get_base_url "$url")
-  
+  #echo "DEBUG:Vulnerable:$vulnerable"
+  #echo "DEBUG:BaseUrl:${vulnerable_bases[$base_url]}"
+  #sleep 1
   # Skip if this base URL is already marked as vulnerable
   if [[ -n "${vulnerable_bases[$base_url]}" ]]; then
     if [[ "$verbose" == true ]]; then
@@ -144,22 +146,24 @@ for url in "${urlList[@]}"; do
 
   baselineBody=$(curl_body "$url")
   echo "Starting SQL Injection checks..."
-  echo "Target:$url"
+  echo -e "Target:{$GREEN}$url${NC}"
   for payload in "${payloads[@]}"; do
     attackUrl="${url}${payload}"
     attackBody=$(curl_body "$attackUrl")
     responseCode=$(curl_ResponseCode "$attackUrl")
-    echo "Debug:$attackUrl"
-    b=$(echo "$baselineBody" | grep -o '<[^>]*>'| wc -l)
-    echo "Debug:Baseline $b"
-    a=$(echo "$attackBody"   | grep -o '<[^>]*>'| wc -l)
+    #echo "Debug:$attackUrl"
+    #b=$(echo "$baselineBody" | grep -o '<[^>]*>'| wc -l)
+   # echo "Debug:Baseline $b"
+   # a=$(echo "$attackBody"   | grep -o '<[^>]*>'| wc -l)
 
     #If page is not found try the next $url/$payload
-    if [[ $responseCode -gt 400 ]]; then
+    if [[ $responseCode -eq 404 ]]; then
         echo -e "${RED}[$responseCode]${NC}Page not found" 
         continue
-    fi
-
+    
+    elif [[ $responseCode -gt 404 && $responseCode -le 499 ]]; then
+        echo -e "${RED}[$responseCode]${NC}Some type of bad request" 
+      fi  
 
     # ----1st Initial check to confirm the url is not a false positive
     if [[ $responseCode -eq 200 ]]; then
@@ -169,7 +173,7 @@ for url in "${urlList[@]}"; do
             matched=$(echo "$attackBody" | grep -Eio "$patterns" | head -1)
             echo -e "${BLUE}  Reason:${NC} Contains pattern: \"$matched\""
             falsePositiveList+=("$attackUrl")
-            break
+            continue
         fi
     fi
     
@@ -201,10 +205,18 @@ for url in "${urlList[@]}"; do
         
             echo "Checking for element count changes..."
             "$SCRIPT_DIR/diff.sh" -u "$url" #|| true
-
+            # Capture the exit code
+            diff_exit_code=$?
+            if [[ $diff_exit_code -eq 1 ]]; then
+                # Here you can return 1 to your main function
+                vulnerable=true
+                SQLRiskConfidence=$((SQLRiskConfidence + 25))
+                #by adding risk will make the risk confidence raise to 50, and the url base will be added to be skipped 
+                break
+            fi            
 
             #-- here
-        fi
+        fi 
     fi
     elif [[ $responseCode -gt 299 && $responseCode -lt 499 ]]; then
         falseCheckList+=("$attackUrl")
@@ -226,8 +238,9 @@ for url in "${urlList[@]}"; do
   done
 
   if [[ $truePassCheck == true && $falsePassCheck == true ]]; then
-    echo "SQL Injection point discovered"
+    echo -e "${RED}[VULNERABLE] ⚠️ SQL INJECTION DETECTED!${NC}"
     echo "URL: $url"
+    echo "Payload: $payload"
     if [[ ${#trueCheckList[@]} -gt 0 ]]; then
         echo "Payload: ${trueCheckList[0]}"
     fi

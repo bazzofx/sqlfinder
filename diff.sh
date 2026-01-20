@@ -10,7 +10,7 @@ NC='\033[0m'
 # Configuration
 THRESHOLD_PERCENT=10
 TIMEOUT=10
-
+vulnerable=0
 # Show help
 show_help() {
     echo "SQL Injection Detector - Element Count Analysis"
@@ -100,13 +100,15 @@ detect_sqli() {
         echo "URL: $url"
         echo "Payload: $payload"
         echo "Element increase: ${increase}% (${baseline_count} → ${attack_count})"
+        echo -e "${BLUE}  Reason:${NC} The number of significant elements have increased during testing"
         echo
         echo "Pattern changes:"
         check_patterns "$baseline" "$attack"
-        return 0
+        vulnerable=true
+        return 1
     else
         echo "No significant element count change (${increase}%)"
-        return 1
+        return 0
     fi
 }
 
@@ -157,7 +159,11 @@ main() {
     fi
     
     # Run detection
-    detect_sqli "$url" "$payload" "$header"
+   if detect_sqli "$url" "$payload" "$header"; then
+    exit 0
+    else
+        exit 1
+    fi
 }
 
 # Run if called directly
