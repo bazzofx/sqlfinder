@@ -146,8 +146,9 @@ for url in "${urlList[@]}"; do
 
   baselineBody=$(curl_body "$url")
   echo "Starting SQL Injection checks..."
-  echo -e "Target:{$GREEN}$url${NC}"
+  echo -e "Target:${GREEN}$url${NC}"
   for payload in "${payloads[@]}"; do
+    echo "Attacking using payload:$payload"
     attackUrl="${url}${payload}"
     attackBody=$(curl_body "$attackUrl")
     responseCode=$(curl_ResponseCode "$attackUrl")
@@ -188,14 +189,16 @@ for url in "${urlList[@]}"; do
             echo -e "${BLUE}  Reason:${NC} Database error found on Response"
         fi
     fi
-        
-    #------The actual SQL Check Starts here
+    #----------- SQL TEST START LOGIC ---------------   
+    #--------The actual SQL Check Starts here--------
     if [[ $responseCode -eq 200 ]]; then
         SQLRiskConfidence=$((SQLRiskConfidence + 25))
         trueCheckList+=("$attackUrl")
         truePassCheck=true  
         
         if [[ "$attackBody" == "$baselineBody" ]]; then
+            echo "Debug:check 1"
+            echo -e "$attackUrl"
             echo "Payload request matches Baseline, SQL Risk Increased"
             SQLRiskConfidence=$((SQLRiskConfidence + 50))
             vulnerable=true
@@ -224,9 +227,9 @@ for url in "${urlList[@]}"; do
         SQLRiskConfidence=$((SQLRiskConfidence + 10))
            
 
-    else 
-        echo "Unexpected response from the server using the below payload"
-        echo "$attackUrl"
+    #else 
+        #echo "Unexpected response from the server using the below payload"
+        #echo "$attackUrl"
     fi
 
 
