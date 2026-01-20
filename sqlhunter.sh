@@ -14,7 +14,7 @@ NC='\033[0m'
 
 warning="⚠️"
 check="✓"
-
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # -------------- DEFAULTS-------------
 threads=20
 file=""
@@ -81,6 +81,11 @@ curl_ResponseCode(){
   curl -s -o /dev/null -w "%{http_code}" "$1"
 }
 
+
+
+
+
+
 #Validate input ----------------
 
 if [[ -z "$url" ]]; then
@@ -118,16 +123,16 @@ if [[ -z "${urlList[@]}" ]]; then
     urlList=("$url")
 fi
 
-for each_url in "${urlList[@]}"; do
-  [[ -z "$each_url" ]] && continue
+for url in "${urlList[@]}"; do
+  [[ -z "$url" ]] && continue
   
   # Get base URL (without trailing /number)
-  base_url=$(get_base_url "$each_url")
+  base_url=$(get_base_url "$url")
   
   # Skip if this base URL is already marked as vulnerable
   if [[ -n "${vulnerable_bases[$base_url]}" ]]; then
     if [[ "$verbose" == true ]]; then
-      echo -e "${YELLOW}[*] Skipping $each_url (base URL $base_url already marked as vulnerable)${NC}" 1>&2
+      echo -e "${YELLOW}[*] Skipping $url (base URL $base_url already marked as vulnerable)${NC}" 1>&2
     fi
     continue
   fi
@@ -137,19 +142,31 @@ for each_url in "${urlList[@]}"; do
   falsePassCheck=false
   SQLRiskConfidence=0
 
-  baselineBody=$(curl_body "$each_url")
-  
+  baselineBody=$(curl_body "$url")
+  echo "Starting SQL Injection checks..."
+  echo "Target:$url"
   for payload in "${payloads[@]}"; do
-    attackUrl="${each_url}${payload}"
-    responseBody=$(curl_body "$attackUrl")
+    attackUrl="${url}${payload}"
+    attackBody=$(curl_body "$attackUrl")
     responseCode=$(curl_ResponseCode "$attackUrl")
+    echo "Debug:$attackUrl"
+    b=$(echo "$baselineBody" | grep -o '<[^>]*>'| wc -l)
+    echo "Debug:Baseline $b"
+    a=$(echo "$attackBody"   | grep -o '<[^>]*>'| wc -l)
+
+    #If page is not found try the next $url/$payload
+    if [[ $responseCode -gt 400 ]]; then
+        echo -e "${RED}[$responseCode]${NC}Page not found" 
+        continue
+    fi
+
 
     # ----1st Initial check to confirm the url is not a false positive
     if [[ $responseCode -eq 200 ]]; then
-        if echo "$responseBody" | grep -Eiq "$patterns"; then
+        if echo "$attackBody" | grep -Eiq "$patterns"; then
             SQLRiskConfidence=0
             echo "[-] Skipping (false positive): $attackUrl"
-            matched=$(echo "$responseBody" | grep -Eio "$patterns" | head -1)
+            matched=$(echo "$attackBody" | grep -Eio "$patterns" | head -1)
             echo -e "${BLUE}  Reason:${NC} Contains pattern: \"$matched\""
             falsePositiveList+=("$attackUrl")
             break
@@ -158,7 +175,7 @@ for each_url in "${urlList[@]}"; do
     
     #------2nd Check for Database Errors on the response
     if [[ $responseCode -ne 200 ]]; then
-        if echo "$responseBody" | grep -qi "sql.*error\|syntax.*error\|mysql\|postgresql\|oracle"; then
+        if echo "$attackBody" | grep -qi "sql.*error\|syntax.*error\|mysql\|postgresql\|oracle"; then
             echo "    [!] SQL error message detected in response"
             falseCheckList+=("$attackUrl")
             falsePassCheck=true
@@ -168,25 +185,38 @@ for each_url in "${urlList[@]}"; do
         fi
     fi
         
-    #------3rd SQL Check Starts here
+    #------The actual SQL Check Starts here
     if [[ $responseCode -eq 200 ]]; then
         SQLRiskConfidence=$((SQLRiskConfidence + 25))
         trueCheckList+=("$attackUrl")
-        truePassCheck=true	
+        truePassCheck=true  
         
-        if [[ "$responseBody" == "$baselineBody" ]]; then
+        if [[ "$attackBody" == "$baselineBody" ]]; then
             echo "Payload request matches Baseline, SQL Risk Increased"
             SQLRiskConfidence=$((SQLRiskConfidence + 50))
             vulnerable=true
+
+        else
+        if [[ $responseCode -eq 200 ]] && [[ "$attackBody" != "$baselineBody" ]]; then
+        
+            echo "Checking for element count changes..."
+            "$SCRIPT_DIR/diff.sh" -u "$url" #|| true
+
+
+            #-- here
         fi
+    fi
     elif [[ $responseCode -gt 299 && $responseCode -lt 499 ]]; then
         falseCheckList+=("$attackUrl")
         falsePassCheck=true
         SQLRiskConfidence=$((SQLRiskConfidence + 10))
+           
+
     else 
         echo "Unexpected response from the server using the below payload"
         echo "$attackUrl"
     fi
+
 
     if [[ $SQLRiskConfidence -ge 50 ]]; then
         # Mark this base URL as vulnerable to skip future variations
@@ -197,7 +227,7 @@ for each_url in "${urlList[@]}"; do
 
   if [[ $truePassCheck == true && $falsePassCheck == true ]]; then
     echo "SQL Injection point discovered"
-    echo "URL: $each_url"
+    echo "URL: $url"
     if [[ ${#trueCheckList[@]} -gt 0 ]]; then
         echo "Payload: ${trueCheckList[0]}"
     fi
