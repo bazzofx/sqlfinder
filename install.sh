@@ -49,6 +49,11 @@ if ! command -v pipx >/dev/null 2>&1; then
   sudo export PATH="$PATH:$HOME/.local/bin"
 fi
 
+if ! command -v  parallel >/dev/null 2>&1; then
+echo "[*] Installing parallel..."
+sudo apt-get install parallel
+fi
+
 git clone https://github.com/s0md3v/uro
 cd uro/uro
 pipx install uro --force
@@ -67,6 +72,12 @@ if ! command -v uro >/dev/null 2>&1; then
   echo "[✗] uro installation failed"
   exit 1
 fi
+
+if ! command -v parallel >/dev/null 2>&1; then
+  echo "[✗] parallel installation failed"
+  exit 1
+fi
+
 clear
 echo "[✓] katana installed: $(katana -version 2>/dev/null || echo OK)"
 echo "[✓] uro installed: $(uro --help >/dev/null 2>&1 && echo OK)"
