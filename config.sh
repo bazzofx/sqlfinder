@@ -9,7 +9,7 @@ declare -a falsePositiveResponse=(
     "JavaScript must be enabled"
     "Please turn on JavaScript"
 )
-
+#
 declare -a payloads=(
   # Simple payload  
     "'"
