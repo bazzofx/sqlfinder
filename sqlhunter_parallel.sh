@@ -148,6 +148,71 @@ get_base_url() {
   echo "$url" | sed -E 's|(/[0-9]+)+$||'
 }
 
+    run_sql_logic_check() {
+    	if [[ $responseCode -eq 404 ]]; then
+               return 0
+            
+            elif [[ $responseCode -gt 404 && $responseCode -le 499 ]]; then
+                echo -e "${RED}[$responseCode]${NC}Some type of bad request" 
+            fi
+
+            # False positive check
+            if [[ $responseCode -eq 200 ]]; then
+                if echo "$attackBody" | grep -Eiq "$patterns"; then
+                    SQLRiskConfidence=0
+                    echo "[-] Skipping (false positive): $attackUrl"
+                    matched=$(echo "$attackBody" | grep -Eio "$patterns" | head -1)
+                    echo -e "${BLUE}  Reason:${NC} Contains pattern: \"$matched\""
+                    falsePositiveList+=("$attackUrl")
+                    return 0
+                fi
+            fi
+            
+            # SQL error check
+            if [[ $responseCode -ne 200 ]]; then
+                if echo "$attackBody" | grep -qi "sql.*error\|syntax.*error\|mysql\|postgresql\|oracle"; then
+                    echo "    [!] SQL error message detected in response"
+                    falseCheckList+=("$attackUrl")
+                    falsePassCheck=true
+                    SQLRiskConfidence=$((SQLRiskConfidence + 25))
+                    echo -e "${RED}SQL Injection found ${NC} "
+                    echo -e "${BLUE}  Reason:${NC} Database error found on Response"
+                fi
+            fi
+            
+            # SQL injection logic
+            if [[ $responseCode -eq 200 ]]; then
+                SQLRiskConfidence=$((SQLRiskConfidence + 25))
+                trueCheckList+=("$attackUrl")
+                truePassCheck=true  
+                
+                if [[ "$attackBody" == "$baselineBody" ]]; then
+                    echo "Debug:check 1"
+                    echo -e "$attackUrl"
+                    echo "Payload request matches Baseline, SQL Risk Increased"
+                    SQLRiskConfidence=$((SQLRiskConfidence + 50))
+                    vulnerable=true
+
+                elif [[ "$attackBody" != "$baselineBody" ]]; then
+                    echo "Checking for element count changes..."
+                    "$SCRIPT_DIR/diff.sh" -u "$url"
+                    diff_exit_code=$?
+                    if [[ $diff_exit_code -eq 1 ]]; then
+                        vulnerable=true
+                        SQLRiskConfidence=$((SQLRiskConfidence + 25))
+                        return 99
+                    fi
+                fi
+            elif [[ $responseCode -gt 299 && $responseCode -lt 499 ]]; then
+                falseCheckList+=("$attackUrl")
+                falsePassCheck=true
+                SQLRiskConfidence=$((SQLRiskConfidence + 10))
+            fi
+
+            if [[ $SQLRiskConfidence -ge 50 ]]; then
+                vulnerable_bases["$base_url"]=1
+            fi
+    }
 #----------- LOGIC STARTS HERE ----------
 
 declare -A vulnerable_bases=()
@@ -208,7 +273,8 @@ for url in "${urlList[@]}"; do
     
     export -f process_payload
     export HEADER
-    
+
+
     # Run in parallel
     for i in "${!payloads[@]}"; do
         echo "$i" "${payloads[$i]}" "$url"
@@ -222,71 +288,14 @@ for url in "${urlList[@]}"; do
             attackBody=$(cat "$tempdir/body_$i")
             attackUrl=$(cat "$tempdir/url_$i")
             payload="${payloads[$i]}"
-            
+      #-------------------------------------------------------------------------------------------------------------------------
             # PROCESS EACH PAYLOAD (SAME LOGIC AS SEQUENTIAL)
-            if [[ $responseCode -eq 404 ]]; then
-                continue
-            
-            elif [[ $responseCode -gt 404 && $responseCode -le 499 ]]; then
-                echo -e "${RED}[$responseCode]${NC}Some type of bad request" 
-            fi
-
-            # False positive check
-            if [[ $responseCode -eq 200 ]]; then
-                if echo "$attackBody" | grep -Eiq "$patterns"; then
-                    SQLRiskConfidence=0
-                    echo "[-] Skipping (false positive): $attackUrl"
-                    matched=$(echo "$attackBody" | grep -Eio "$patterns" | head -1)
-                    echo -e "${BLUE}  Reason:${NC} Contains pattern: \"$matched\""
-                    falsePositiveList+=("$attackUrl")
-                    continue
-                fi
-            fi
-            
-            # SQL error check
-            if [[ $responseCode -ne 200 ]]; then
-                if echo "$attackBody" | grep -qi "sql.*error\|syntax.*error\|mysql\|postgresql\|oracle"; then
-                    echo "    [!] SQL error message detected in response"
-                    falseCheckList+=("$attackUrl")
-                    falsePassCheck=true
-                    SQLRiskConfidence=$((SQLRiskConfidence + 25))
-                    echo -e "${RED}SQL Injection found ${NC} "
-                    echo -e "${BLUE}  Reason:${NC} Database error found on Response"
-                fi
-            fi
-            
-            # SQL injection logic
-            if [[ $responseCode -eq 200 ]]; then
-                SQLRiskConfidence=$((SQLRiskConfidence + 25))
-                trueCheckList+=("$attackUrl")
-                truePassCheck=true  
-                
-                if [[ "$attackBody" == "$baselineBody" ]]; then
-                    echo "Debug:check 1"
-                    echo -e "$attackUrl"
-                    echo "Payload request matches Baseline, SQL Risk Increased"
-                    SQLRiskConfidence=$((SQLRiskConfidence + 50))
-                    vulnerable=true
-
-                elif [[ "$attackBody" != "$baselineBody" ]]; then
-                    echo "Checking for element count changes..."
-                    "$SCRIPT_DIR/diff.sh" -u "$url"
-                    diff_exit_code=$?
-                    if [[ $diff_exit_code -eq 1 ]]; then
-                        vulnerable=true
-                        SQLRiskConfidence=$((SQLRiskConfidence + 25))
-                        break
-                    fi
-                fi
-            elif [[ $responseCode -gt 299 && $responseCode -lt 499 ]]; then
-                falseCheckList+=("$attackUrl")
-                falsePassCheck=true
-                SQLRiskConfidence=$((SQLRiskConfidence + 10))
-            fi
-
-            if [[ $SQLRiskConfidence -ge 50 ]]; then
-                vulnerable_bases["$base_url"]=1
-            fi
+            run_sql_logic_check
+            #Check if already vulnerable
+            if [[ $? -eq 99 ]]; then
+			    break
+			fi
+      #--------------------------------------------------------------------------------------------------------------------------      
         fi
     done
     
@@ -300,70 +309,14 @@ for url in "${urlList[@]}"; do
       echo -e "${BLUE}Attacking:$attackUrl${NC}"
       attackBody=$(curl_body "$attackUrl")
       responseCode=$(curl_ResponseCode "$attackUrl")
+      #-------------------------------------------------------------------------------------------------------------------------
+            run_sql_logic_check
+            #Check if already vulnerable
+            if [[ $? -eq 99 ]]; then
+			    break
+			fi            
+      #--------------------------------------------------------------------------------------------------------------------------
       
-      if [[ $responseCode -eq 404 ]]; then
-        continue
-      
-      elif [[ $responseCode -gt 404 && $responseCode -le 499 ]]; then
-        echo -e "${RED}[$responseCode]${NC}Some type of bad request" 
-      fi  
-
-      # False positive check
-      if [[ $responseCode -eq 200 ]]; then
-          if echo "$attackBody" | grep -Eiq "$patterns"; then
-              SQLRiskConfidence=0
-              echo "[-] Skipping (false positive): $attackUrl"
-              matched=$(echo "$attackBody" | grep -Eio "$patterns" | head -1)
-              echo -e "${BLUE}  Reason:${NC} Contains pattern: \"$matched\""
-              falsePositiveList+=("$attackUrl")
-              continue
-          fi
-      fi
-      
-      # SQL error check
-      if [[ $responseCode -ne 200 ]]; then
-          if echo "$attackBody" | grep -qi "sql.*error\|syntax.*error\|mysql\|postgresql\|oracle"; then
-              echo "    [!] SQL error message detected in response"
-              falseCheckList+=("$attackUrl")
-              falsePassCheck=true
-              SQLRiskConfidence=$((SQLRiskConfidence + 25))
-              echo -e "${RED}SQL Injection found ${NC} "
-              echo -e "${BLUE}  Reason:${NC} Database error found on Response"
-          fi
-      fi
-      
-      # SQL injection logic
-      if [[ $responseCode -eq 200 ]]; then
-          SQLRiskConfidence=$((SQLRiskConfidence + 25))
-          trueCheckList+=("$attackUrl")
-          truePassCheck=true  
-          
-          if [[ "$attackBody" == "$baselineBody" ]]; then
-              echo "Debug:check 1"
-              echo -e "$attackUrl"
-              echo "Payload request matches Baseline, SQL Risk Increased"
-              SQLRiskConfidence=$((SQLRiskConfidence + 50))
-              vulnerable=true
-
-          elif [[ "$attackBody" != "$baselineBody" ]]; then
-              echo "Checking for element count changes..."
-              "$SCRIPT_DIR/diff.sh" -u "$url"
-              diff_exit_code=$?
-              if [[ $diff_exit_code -eq 1 ]]; then
-                  vulnerable=true
-                  SQLRiskConfidence=$((SQLRiskConfidence + 25))
-                  break
-              fi
-          fi
-      elif [[ $responseCode -gt 299 && $responseCode -lt 499 ]]; then
-          falseCheckList+=("$attackUrl")
-          falsePassCheck=true
-          SQLRiskConfidence=$((SQLRiskConfidence + 10))
-      fi
-
-      if [[ $SQLRiskConfidence -ge 50 ]]; then
-          vulnerable_bases["$base_url"]=1
-      fi
     done
   fi
 
