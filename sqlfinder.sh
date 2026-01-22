@@ -37,7 +37,7 @@ Usage: ./sqlhunter.sh [OPTIONS] <URL>
 Options:
   -H, --header <HEADER>     Add custom HTTP header
   -p, --parallel <NUM>      Maximum parallel requests (default: 1)
-  -t, --threads <NUM>       Alias for --parallel
+  -v, --verbose             Outputs a bigger commmand
   -h, --help                Show this help message
 
 Example:
@@ -56,15 +56,16 @@ while [[ $# -gt 0 ]]; do
             parallel_max="$2"
             shift 2
             ;;
-        -t|--threads)
-            parallel_max="$2"
-            shift 2
+        -v|--verbose)
+            verbose=true
+            shift 1  # Only shift 1 for flags without parameters
             ;;
         -h|--help)
             show_help
             exit 0
             ;;
         *)
+            # This handles the URL argument
             if [[ -z "$url" ]]; then
                 url="$1"
             else
@@ -286,8 +287,10 @@ for url in "${urlList[@]}"; do
   echo "Starting SQL Injection checks..."
   echo "Searching for Submission forms on Url"
   fi
-  #Testomg login pages
+
+  #Testing login pages
   "$SCRIPT_DIR/sqlogin.sh" "$url"
+  echo "Checking forms on $url"
   #if [[ $forms == true ]];
   "$SCRIPT_DIR/sqlFormFinder.sh" "$url"
   #fi
