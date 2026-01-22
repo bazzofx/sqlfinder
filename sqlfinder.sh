@@ -258,19 +258,6 @@ declare -A vulnerable_bases=()
 
 # Check and attempt exploit login pages..
 echo "-----------Login Pages found (${#loginPages[@]})---"
-for adminUrl in "${loginPages[@]}"; do
-    echo "Attemptig to SQL Inject login page"
-    #echo "$adminUrl"
-    "$SCRIPT_DIR/sqlogin.sh" "$adminUrl"
-
-    adminUrl_exit_code=$?
-if [[ $adminUrl_exit_code -eq 1 ]]; then
-    vulnerable=true
-    SQLRiskConfidence=$((SQLRiskConfidence + 25))
-    listVulnUrls+=("$adminUrl")
-fi
-
-done
 
 
 #Main SQL Vuln Loop Checker
@@ -294,11 +281,13 @@ for url in "${urlList[@]}"; do
 # Check and attempt exploit forms on the body of url
  # Fetch Original Body 
   baselineBody=$(curl_body "$url")
-  if [[ $versbose == true ]]; then
+  if [[ $verbose == true ]]; then
   echo -e "Target:${GREEN}$url${NC}"
   echo "Starting SQL Injection checks..."
   echo "Searching for Submission forms on Url"
   fi
+  #Testomg login pages
+  "$SCRIPT_DIR/sqlogin.sh" "$url"
   #if [[ $forms == true ]];
   "$SCRIPT_DIR/sqlFormFinder.sh" "$url"
   #fi
@@ -337,7 +326,7 @@ for url in "${urlList[@]}"; do
         echo "$responseCode" > "$tempdir/code_$index"
         echo "$attackBody" > "$tempdir/body_$index"
         echo "$attackUrl" > "$tempdir/url_$index"
-        if [[ $versbose == true ]]; then
+        if [[ $verbose == true ]]; then
             echo -e "${RED}Attacking:$attackUrl${NC}"
         fi
     }
@@ -377,7 +366,7 @@ for url in "${urlList[@]}"; do
     # SEQUENTIAL PROCESSING (ORIGINAL CODE)
     for payload in "${payloads[@]}"; do
       attackUrl="${url}${payload}"
-      if [[ $versbose == true ]]; then
+      if [[ $verbose == true ]]; then
         echo -e "${BLUE}Attacking:$attackUrl${NC}"
       fi
       attackBody=$(curl_body "$attackUrl")
