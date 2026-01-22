@@ -189,11 +189,11 @@ patterns=$(IFS='|'; echo "${sqliFormPayloads[*]}")
         if (( diff > 50 || diff < -50 )); then
             #echo "Difference in response $diff characters"
             echo -e "${RED}[!] Possible SQLi${NC} Field: ${YELLOW}'$field'${NC} Payload: ${YELLOW}$payload${NC} (Δ=${YELLOW}$diff${NC} bytes)"
-            return 0
+            return 1
         fi
     done
 
-    return 1
+    return 0
 }
 
 
@@ -283,19 +283,19 @@ fi
             # Check for common patterns
             check_pattern_changes "$original_body" "$sql_body"
             fi
-            return 0  # Vulnerability detected
+            return 1  # Vulnerability detected
         else
             echo "[-] Minor element count change (${increase_pct}%)"
-            return 1  # Not vulnerable
+            return 0  # Not vulnerable
         fi
     elif [ "$sql_count" -lt "$original_count" ]; then
         decrease_pct=$(( (original_count - sql_count) * 100 / original_count ))
         echo "[-] Element count decreased by ${decrease_pct}%"
         echo "(Could be error-based SQLi or application error)"
-        return 1
+        return 0
     else
         #echo "[-] No change in element count"
-        return 1
+        return 0
     fi
 
 

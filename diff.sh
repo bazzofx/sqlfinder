@@ -89,7 +89,7 @@ detect_sqli() {
     # Calculate percentage change
     if [[ $baseline_count -eq 0 ]]; then
         echo "Error: No HTML elements found in baseline"
-        return 1
+        return 0
     fi
     
     increase=$(( (attack_count - baseline_count) * 100 / baseline_count ))
@@ -105,10 +105,10 @@ detect_sqli() {
         echo "Pattern changes:"
         check_patterns "$baseline" "$attack"
         vulnerable=true
-        return 1
+        return 0
     else
         echo "No significant element count change (${increase}%)"
-        return 0
+        return 1
     fi
 }
 

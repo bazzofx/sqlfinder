@@ -24,7 +24,7 @@ vulnerable=false
 verbose=false
 header=""
 parallel_max=1  # Default sequential
-
+original_args=("$@")
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 ## --- Show Help
@@ -192,9 +192,9 @@ run_sql_logic_check() {
 
                 elif [[ "$attackBody" != "$baselineBody" ]]; then
                     echo "Checking for element count changes..."
-                    "$SCRIPT_DIR/diff.sh" -u "$url"
+                    "$SCRIPT_DIR/diff.sh" -u "$url" "${original_args[@]}"
                     diff_exit_code=$?
-                    if [[ $diff_exit_code -eq 1 ]]; then
+                    if [[ $diff_exit_code -eq 0 ]]; then
                         vulnerable=true
                         SQLRiskConfidence=$((SQLRiskConfidence + 25))
                         return 99
@@ -294,12 +294,14 @@ for url in "${urlList[@]}"; do
 # Check and attempt exploit forms on the body of url
  # Fetch Original Body 
   baselineBody=$(curl_body "$url")
+  if [[ $versbose == true ]]; then
   echo -e "Target:${GREEN}$url${NC}"
   echo "Starting SQL Injection checks..."
-  
   echo "Searching for Submission forms on Url"
+  fi
+  #if [[ $forms == true ]];
   "$SCRIPT_DIR/sqlFormFinder.sh" "$url"
-
+  #fi
   
 
 
@@ -335,8 +337,9 @@ for url in "${urlList[@]}"; do
         echo "$responseCode" > "$tempdir/code_$index"
         echo "$attackBody" > "$tempdir/body_$index"
         echo "$attackUrl" > "$tempdir/url_$index"
-        
-        echo -e "${RED}Attacking:$attackUrl${NC}"
+        if [[ $versbose == true ]]; then
+            echo -e "${RED}Attacking:$attackUrl${NC}"
+        fi
     }
     
     export -f process_payload
@@ -374,7 +377,9 @@ for url in "${urlList[@]}"; do
     # SEQUENTIAL PROCESSING (ORIGINAL CODE)
     for payload in "${payloads[@]}"; do
       attackUrl="${url}${payload}"
-      echo -e "${BLUE}Attacking:$attackUrl${NC}"
+      if [[ $versbose == true ]]; then
+        echo -e "${BLUE}Attacking:$attackUrl${NC}"
+      fi
       attackBody=$(curl_body "$attackUrl")
       responseCode=$(curl_ResponseCode "$attackUrl")
       #-------------------------------------------------------------------------------------------------------------------------
