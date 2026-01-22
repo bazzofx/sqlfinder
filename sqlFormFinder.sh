@@ -22,30 +22,50 @@ verbose=false
 curl_body() {
     local url="$1"
 
-    [ "$verbose" = true ] && echo "[curl-body] $url" >&2
+    # Build curl options array
+    local curl_opts=(
+        -s -L
+        --max-time "$TIMEOUT"
+        -A "$USER_AGENT"
+        --parallel
+        --parallel-max "$threads"
+    )
+    
+    # Add header if provided
+    if [[ -n "$HEADER" ]]; then
+        curl_opts+=(-H "$HEADER")
+    fi
+    
+    # Add any additional CURL_OPTS
+    curl_opts+=("${CURL_OPTS[@]}")
 
-    curl -s -L \
-        --max-time "$TIMEOUT" \
-        -A "$USER_AGENT" \
-        --parallel --parallel-max "$threads" \
-        "${CURL_OPTS[@]}" \
-        "$url"
+    curl "${curl_opts[@]}" "$url"
 }
 
 
 curl_status() {
     local url="$1"
 
-    [ "$verbose" = true ] && echo "[curl-status] $url" >&2
+    # Build curl options array
+    local curl_opts=(
+        -s
+        -o /dev/null
+        -w "%{http_code}"
+        --max-time "$TIMEOUT"
+        -A "$USER_AGENT"
+        --parallel
+        --parallel-max "$threads"
+    )
+    
+    # Add header if provided
+    if [[ -n "$HEADER" ]]; then
+        curl_opts+=(-H "$HEADER")
+    fi
+    
+    # Add any additional CURL_OPTS
+    curl_opts+=("${CURL_OPTS[@]}")
 
-    curl -s \
-        -o /dev/null \
-        -w "%{http_code}" \
-        --max-time "$TIMEOUT" \
-        -A "$USER_AGENT" \
-        --parallel --parallel-max "$threads" \
-        "${CURL_OPTS[@]}" \
-        "$url"
+    curl "${curl_opts[@]}" "$url"
 }
 
 # =========================
@@ -136,7 +156,6 @@ check_pattern_changes() {
 
 
 
-
 # =========================
 # SQL injection testing
 # =========================
@@ -147,6 +166,7 @@ test_input_sqli() {
 
     declare -g original_body
     declare -g original_body_size
+    declare -g test1
 
     #echo -e "${BLUE}[*] Testing field: $field${NC}"
 
@@ -161,25 +181,21 @@ test_input_sqli() {
 
     original_body=$(curl_body "$base_url") #---------------------------------------------------- #Orignal Body Response
     original_body_size=$(printf "%s" "$original_body" | wc -c)
-source config.sh
-# Create grep pattern from falsePositiveResponse array
-patterns=$(IFS='|'; echo "${sqliFormPayloads[*]}")
 
-
-    for payload in "${sqliFormPayloads[@]}"; do
+    for payload in "${SQLI_PAYLOADS[@]}"; do
         encoded=$(curl -sG \
             --data-urlencode "$field=$payload" \
             -o /dev/null \
             -w '%{url_effective}' \
+            -H "$HEADER" \
             "$url" | sed "s/^.*[?&]$field=//")
-
+            echo "$HEADER"
         local test_url
         if [[ "$url" == *"?"* ]]; then
             test_url="${url}&${field}=${encoded}&Submit=Submit"
         else
             test_url="${url}?${field}=${encoded}&Submit=Submit"
         fi
-
 
         sql_body=$(curl_body "$test_url") #---------------------------------------------------- #SQL Body Response
         sql_body_size=$(printf "%s" "$sql_body" | wc -c)
@@ -189,11 +205,11 @@ patterns=$(IFS='|'; echo "${sqliFormPayloads[*]}")
         if (( diff > 50 || diff < -50 )); then
             #echo "Difference in response $diff characters"
             echo -e "${RED}[!] Possible SQLi${NC} Field: ${YELLOW}'$field'${NC} Payload: ${YELLOW}$payload${NC} (Δ=${YELLOW}$diff${NC} bytes)"
-            return 1
+            return 0
         fi
     done
 
-    return 0
+    return 1
 }
 
 
@@ -203,27 +219,27 @@ patterns=$(IFS='|'; echo "${sqliFormPayloads[*]}")
 
 test_page_for_sqli() {
     local url="$1"
-    if [[ $verbose == true ]]; then
+
     echo -e "${GREEN}[*] Analyzing: $url${NC}"
-    fi
     response=$(curl_body "$url")
 #    echo "$response"
+echo -e "${YELLOW}--------------------------------${NC}"
 submit_fields=$(extract_submit_fields "$response")
 submit_field=$(echo "$submit_fields" | head -n1)
 #echo "Submit Field:$submit_field"
 
-    
-fields=$(extract_input_fields "$response")
-field_count=$(echo "$fields" | wc -l)
-    if [[ $verbose == true ]]; then
-        if ! has_input_elements "$response"; then
+
+    if ! has_input_elements "$response"; then
         echo -e "${YELLOW}[-] No input elements found${NC}"
         return
-        fi
+    fi
+
     echo -e "${GREEN}[+] Page contains input elements${NC}"
+
+    fields=$(extract_input_fields "$response")
+    field_count=$(echo "$fields" | wc -l)
     echo -e "${BLUE}[+] Found $field_count input field(s):${NC}"
     echo -e "$fields"  | sed 's/^/  - /'
-    fi
 
 #--------------- Check Difference Count of Elements Place logic inside For Loop---------------------
 
@@ -266,7 +282,6 @@ fi
     #----------------------- Check Count of Elements
  if [ "$sql_count" -gt "$original_count" ]; then
         if [ $increase_pct -ge $THRESHOLD_PERCENT ]; then
-            echo -e "${YELLOW}---------------------------------------------------------------------${NC}"
             echo -e "${RED}[VULNERABLE] ⚠️ POSSIBLE SQL INJECTION VULNERABILITY DETECTED!${NC}"
             echo -e "    URL: ${YELLOW}$url${NC}"
             echo -e "    Payload: ${YELLOW}$payload${NC}"
@@ -283,19 +298,19 @@ fi
             # Check for common patterns
             check_pattern_changes "$original_body" "$sql_body"
             fi
-            return 1  # Vulnerability detected
+            return 0  # Vulnerability detected
         else
             echo "[-] Minor element count change (${increase_pct}%)"
-            return 0  # Not vulnerable
+            return 1  # Not vulnerable
         fi
     elif [ "$sql_count" -lt "$original_count" ]; then
         decrease_pct=$(( (original_count - sql_count) * 100 / original_count ))
         echo "[-] Element count decreased by ${decrease_pct}%"
         echo "(Could be error-based SQLi or application error)"
-        return 0
+        return 1
     else
         #echo "[-] No change in element count"
-        return 0
+        return 1
     fi
 
 
@@ -329,24 +344,51 @@ if [ -z "$1" ]; then
     echo "  $0 https://target -H \"Cookie: PHPSESSID=123; key=low\""
     exit 1
 fi
-
 URL="$1"
 shift
 
 CURL_OPTS=()
-
+HEADER=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        -H|--header)
+            HEADER="$2"
+            # Don't add to CURL_OPTS, HEADER is handled separately
+            shift 2
+            ;;        
         -v|--verbose)
             verbose=true
             shift
             ;;
-        *)
-            CURL_OPTS+=("$1")
+        -f|--forms)
+            forms=true
             shift
+            ;;            
+        -h|--help)
+            show_help
+            exit 0
+            ;;
+        *)
+            # Check if this is a flag (starts with -)
+            if [[ "$1" == -* ]]; then
+                echo "Warning: Unknown flag: $1" >&2
+                # Add to CURL_OPTS for curl compatibility
+                CURL_OPTS+=("$1")
+                # If flag has a value, add it too
+                if [[ $# -gt 1 && "$2" != -* ]]; then
+                    CURL_OPTS+=("$2")
+                    shift 2
+                else
+                    shift
+                fi
+            else
+                # Non-flag argument - could be another URL or something else
+                echo "Warning: Unexpected argument: $1" >&2
+                shift
+            fi
             ;;
     esac
 done
 
-test_page_for_sqli "$URL"
+    test_page_for_sqli "$URL"
 
