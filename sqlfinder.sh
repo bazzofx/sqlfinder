@@ -110,6 +110,7 @@ collect_urls() {
     | uro 2>/dev/null \
     | grep -Ev '\.(js|tsx|php|html|htm|json)(\?|$)' \
     | sed 's/:id//' \
+    | sed  's/\\n$//' \
     | sort -u
 }
 
@@ -223,8 +224,12 @@ fi
 # Read URL list into array
 echo -e "[${GREEN}+${NC}] - Collecting URLs from: $url"
 IFS=$'\n' read -r -d '' -a urlList <<< "$(collect_urls "$url")"
-#Create a list of login pages
-IFS=$'\n' loginPages=($(printf "%s\n" "${urlList[@]}" | grep -iE "(admin|login)$"))
+
+
+echo "${urlList[@]}"
+echo "-------------------------"
+
+
 #We will add a random number to these Urls, as that is how some we can detect SQL injection on these
 IFS=$'\n' noTrailUrlList=($(printf "%s\n" "${urlList[@]}"| grep -E '\.(js|tsx|php|html|htm|json)(\?|$)'))
 # Expand the URLs with number variationsf=
@@ -258,7 +263,7 @@ declare -A vulnerable_bases=()
 #
 
 # Check and attempt exploit login pages..
-echo "-----------Login Pages found (${#loginPages[@]})---"
+#echo "---Login Pages found (${#loginPages[@]})---"
 
 
 #Main SQL Vuln Loop Checker
@@ -288,12 +293,15 @@ for url in "${urlList[@]}"; do
   echo "Searching for Submission forms on Url"
   fi
 
-  #Testing login pages
-  "$SCRIPT_DIR/sqlogin.sh" "$url"
+#Testing login pages
+if [[ "$url" =~ (login|admin|dashboard|signin) ]]; then
+    "$SCRIPT_DIR/sqlogin.sh" -u "$url" "${original_args[@]}"
+fi
+
   echo "Checking forms on $url"
-  #if [[ $forms == true ]];
-  "$SCRIPT_DIR/sqlFormFinder.sh" "$url"
-  #fi
+  if [[ $forms == true ]]; then
+  "$SCRIPT_DIR/sqlFormFinder.sh" -u "$url" "${original_args[@]}"
+  fi
   
 
 

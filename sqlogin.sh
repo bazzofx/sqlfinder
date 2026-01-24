@@ -25,6 +25,95 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Usage
+show_help() {
+    echo "SQL Injection Login Bypass Scanner"
+    echo "Usage: $0 [OPTIONS] <URL or FILE>"
+    echo "       $0 -u URL [OPTIONS]"
+    echo
+    echo "Options:"
+    echo "  -u, --url URL      Specify URL to scan"
+    echo "  -H, --header HDR   Add custom header (e.g., \"Cookie: session=abc\")"
+    echo "  -h, --help         Show this help message"
+    echo
+    echo "Examples:"
+    echo "  $0 https://example.com/login"
+    echo "  $0 -u https://example.com/login -H \"Cookie: session=abc\""
+    echo "  $0 urls.txt"
+    echo
+    echo "The scanner will:"
+    echo "  1. Detect login forms"
+    echo "  2. Extract form parameters"
+    echo "  3. Test multiple SQL injection payloads"
+    echo "  4. Report successful login bypasses"
+}
+
+# Parse command line options
+URL=""
+HEADER=""
+verbose=false
+forms=false
+CURL_OPTS=()
+
+# If no arguments, show help
+if [ $# -eq 0 ]; then
+    show_help
+    exit 0
+fi
+
+# Parse all arguments
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -u|--url)
+            URL="$2"
+            shift 2
+            ;;
+        -v|--verbose)
+            verbose=true
+            shift
+            ;;            
+        -H|--header)
+            # Add header to curl options
+            CURL_OPTS+=("-H" "$2")
+            shift 2
+            ;;
+        -h|--help)
+            show_help
+            exit 0
+            ;;
+        -*)
+            # Unknown option that starts with -
+            echo "Warning: Unknown option: $1" >&2
+            shift
+            ;;
+        *)
+            # First non-option argument is the URL/file (if URL not already set with -u)
+            if [ -z "$URL" ]; then
+                URL="$1"
+            else
+                # Pass any other arguments as curl options
+                CURL_OPTS+=("$1")
+            fi
+            shift
+            ;;
+    esac
+done
+
+# Check if URL is provided
+if [ -z "$URL" ]; then
+    echo "Error: URL or file is required" >&2
+    show_help
+    exit 1
+fi
+
+
+echo "Running sqlogin"
+
+
+
+
+
+
 # Check if page is a login form
 is_login_page() {
     local html="$1"
@@ -302,33 +391,11 @@ scan_urls() {
     fi
 }
 
-# Usage
-show_help() {
-    echo "SQL Injection Login Bypass Scanner"
-    echo "Usage: $0 [OPTIONS] <URL or FILE>"
-    echo
-    echo "Options:"
-    echo "  -h, --help     Show this help message"
-    echo
-    echo "Examples:"
-    echo "  $0 https://example.com/login"
-    echo "  $0 urls.txt"
-    echo
-    echo "The scanner will:"
-    echo "  1. Detect login forms"
-    echo "  2. Extract form parameters"
-    echo "  3. Test multiple SQL injection payloads"
-    echo "  4. Report successful login bypasses"
-}
+
 
 # Main execution
 main() {
-    if [ $# -eq 0 ] || [[ "$1" =~ ^-h|--help ]]; then
-        show_help
-        exit 0
-    fi
-    
-    scan_urls "$1"
+    scan_urls "$URL"
 }
 
 # Run main if script is executed directly
