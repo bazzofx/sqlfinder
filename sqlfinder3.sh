@@ -39,7 +39,6 @@ Options:
   -p, --parallel <NUM>      Maximum parallel requests (default: 1)
   -v, --verbose             Outputs a bigger commmand
   -h, --help                Show this help message
-  -f, --forms               Scan the page for forms and attempt to exploit them
 
 Example:
   ./sqlhunter.sh -p 20 -H "Cookie: session=abc123" https://example.com/page?id=1
@@ -54,13 +53,9 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         -p|--parallel)
-            parallel_max="30"
+            parallel_max="$2"
             shift 2
             ;;
-        -f|--forms)
-            forms=true
-            shift 1  # Only shift 1 for flags without parameters
-            ;;            
         -v|--verbose)
             verbose=true
             shift 1  # Only shift 1 for flags without parameters
@@ -288,9 +283,7 @@ run_sql_logic_check() {
                 
                 if [[ "$attackBody" == "$baselineBody" ]]; then
                     echo -e "$attackUrl"
-                    if [[ $verbose == true ]]; then
                     echo "Payload request matches Baseline, SQL Risk Increased"
-                    fi
                     SQLRiskConfidence=$((SQLRiskConfidence + 50))
                     vulnerable=true
 
@@ -408,16 +401,15 @@ if [[ "$url" =~ (login|admin|dashboard|signin) ]]; then
     "$SCRIPT_DIR/sqlogin.sh" -u "$url" "${original_args[@]}"
 fi
 
-
-  if [[ $forms == true ]]; then
   echo "Checking forms on $url"
-  PATTERNS="$patterns" "$SCRIPT_DIR/sqlFormFinder.sh" "$url" -H "$HEADER"
+  if [[ $forms == true ]]; then
+  "$SCRIPT_DIR/sqlFormFinder.sh" -u "$url" "${original_args[@]}"
   fi
   
 
 
 
- # ==================== UPDATED PARALLEL PROCESSING SECTION ====================
+  # ==================== UPDATED PARALLEL PROCESSING SECTION ====================
   if [[ $parallel_max -gt 1 ]]; then
     echo "Testing ${#payloads[@]} payloads with $parallel_max parallel workers..."
     
@@ -457,32 +449,11 @@ fi
     export -f process_payload curl_body curl_ResponseCode
     export HEADER patterns SCRIPT_DIR parallel_max
     
-    # ========== FIXED: SIMPLER XARGS APPROACH ==========
-    # Create an array to store PIDs
-    declare -A pid_array=()
-    
-    # Process in parallel using background jobs
+    # Run in parallel using xargs
     for i in "${!payloads[@]}"; do
-        # Run in background
-        process_payload "$i" "${payloads[$i]}" "$url" &
-        pid=$!
-        pid_array[$pid]=1
-        
-        # Limit concurrent jobs
-        if [[ ${#pid_array[@]} -ge $parallel_max ]]; then
-            # Wait for any job to finish
-            wait -n
-            # Remove finished PIDs
-            for pid_key in "${!pid_array[@]}"; do
-                if ! kill -0 "$pid_key" 2>/dev/null; then
-                    unset "pid_array[$pid_key]"
-                fi
-            done
-        fi
-    done
-    
-    # Wait for all remaining background jobs
-    wait
+        echo "$i" "${payloads[$i]}" "$url"
+    done | xargs -I {} -P "$parallel_max" \
+        bash -c 'process_payload $1 "$2" "$3"' _ {}
     
     # Read results
     for i in "${!payloads[@]}"; do
@@ -496,8 +467,8 @@ fi
             run_sql_logic_check
             #Check if already vulnerable
             if [[ $? -eq 99 ]]; then
-                break
-            fi
+			    break
+			fi
       #--------------------------------------------------------------------------------------------------------------------------      
         fi
     done
@@ -518,13 +489,12 @@ fi
             run_sql_logic_check
             #Check if already vulnerable
             if [[ $? -eq 99 ]]; then
-                break
-            fi            
+			    break
+			fi            
       #--------------------------------------------------------------------------------------------------------------------------
       
     done
   fi
-  #-----------------------
 
   if [[ $truePassCheck == true && $falsePassCheck == true ]]; then
     echo -e "${RED}[VULNERABLE] ⚠️ SQL INJECTION DETECTED!${NC}"

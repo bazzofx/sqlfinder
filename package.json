@@ -1,0 +1,11 @@
+{
+  "name": "ctf-tools",
+  "version": "1.0.0",
+  "dependencies": {
+    "puppeteer": "^24.36.0"
+  },
+  "scripts": {
+    "setup": "npm install",
+    "test-puppeteer": "node puppeteer-wrapper.js"
+  }
+}

@@ -16,13 +16,13 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 verbose=false
 # =========================
-# curl helpers
+# curl helpers - UPDATED WITH PUPPETEER SUPPORT
 # =========================
 
 curl_body() {
     local url="$1"
 
-    # Build curl options array
+    # First try normal curl
     local curl_opts=(
         -s -L
         --max-time "$TIMEOUT"
@@ -38,15 +38,87 @@ curl_body() {
     
     # Add any additional CURL_OPTS
     curl_opts+=("${CURL_OPTS[@]}")
+    
+    local response
+    response=$(curl "${curl_opts[@]}" "$url")
+    
+    # Check if this looks like a JavaScript-rendered page
+    # Use patterns from environment (passed from sqlfinder.sh) or defaults
+    local patterns="${PATTERNS:-}"
+    if [[ -z "$patterns" ]]; then
+        patterns="<noscript>|You need to enable JavaScript|root.*></div>|static/js/"
+    fi
 
-    curl "${curl_opts[@]}" "$url"
+    if [[ -n "$patterns" ]] && echo "$response" | grep -q -E "$patterns"; then
+        # JavaScript page detected - use Puppeteer
+        local puppeteer_wrapper=""
+        
+        # Look for puppeteer-wrapper.js in common locations
+        if [[ -f "$SCRIPT_DIR/puppeteer-wrapper.js" ]]; then
+            puppeteer_wrapper="$SCRIPT_DIR/puppeteer-wrapper.js"
+        elif [[ -f "./puppeteer-wrapper.js" ]]; then
+            puppeteer_wrapper="./puppeteer-wrapper.js"
+        elif [[ -f "$PWD/puppeteer-wrapper.js" ]]; then
+            puppeteer_wrapper="$PWD/puppeteer-wrapper.js"
+        fi
+        
+        if [[ -n "$puppeteer_wrapper" ]]; then
+            # Build puppeteer arguments
+            local puppeteer_args="$url"
+            if [[ -n "$HEADER" ]]; then
+                puppeteer_args="$url -H '$HEADER'"
+            fi
+            
+            response=$(node "$puppeteer_wrapper" $puppeteer_args 2>/dev/null)
+        else
+            # Fallback inline Puppeteer script
+            response=$(node -e "
+                const puppeteer = require('puppeteer');
+                (async () => {
+                    const browser = await puppeteer.launch({headless: 'new'});
+                    const page = await browser.newPage();
+                    
+                    // Set headers if provided
+                    const headers = {};
+                    if ('$HEADER') {
+                        const [name, value] = '$HEADER'.split(': ');
+                        if (name && value) {
+                            headers[name.trim()] = value.trim();
+                        }
+                    }
+                    
+                    if (Object.keys(headers).length > 0) {
+                        await page.setExtraHTTPHeaders(headers);
+                    }
+                    
+                    await page.goto('$url', {
+                        waitUntil: 'networkidle2',
+                        timeout: 10000
+                    });
+                    
+                    // Wait for JavaScript
+                    await new Promise(resolve => setTimeout(resolve, 800));
+                    
+                    const content = await page.content();
+                    console.log(content);
+                    await browser.close();
+                })().catch(error => {
+                    console.error('Puppeteer error:', error.message);
+                    // Fallback to empty response
+                    console.log('');
+                });
+            " 2>/dev/null)
+        fi
+    fi
+    
+    echo "$response"
 }
 
 
 curl_status() {
     local url="$1"
 
-    # Build curl options array
+    # First try normal curl
     local curl_opts=(
         -s
         -o /dev/null
@@ -64,8 +136,48 @@ curl_status() {
     
     # Add any additional CURL_OPTS
     curl_opts+=("${CURL_OPTS[@]}")
-
-    curl "${curl_opts[@]}" "$url"
+    
+    local code
+    code=$(curl "${curl_opts[@]}" "$url" 2>/dev/null || echo "000")
+    
+    # Check if we might need Puppeteer for JavaScript pages
+    if [[ "$code" == "200" ]]; then
+        # Quick check if it's a JavaScript page
+        local quick_check=$(timeout 2 curl -s "${curl_opts[@]}" "$url" 2>/dev/null | head -c 300)
+        
+        local patterns="${PATTERNS:-}"
+        if [[ -z "$patterns" ]]; then
+            patterns="<noscript>|You need to enable JavaScript|root.*></div>|static/js/"
+        fi
+        
+        if [[ -n "$patterns" ]] && echo "$quick_check" | grep -q -E "$patterns"; then
+            # JavaScript page - use Puppeteer to check status
+            local puppeteer_wrapper=""
+            
+            if [[ -f "$SCRIPT_DIR/puppeteer-wrapper.js" ]]; then
+                puppeteer_wrapper="$SCRIPT_DIR/puppeteer-wrapper.js"
+            elif [[ -f "./puppeteer-wrapper.js" ]]; then
+                puppeteer_wrapper="./puppeteer-wrapper.js"
+            fi
+            
+            if [[ -n "$puppeteer_wrapper" ]]; then
+                local puppeteer_args="$url --check-js"
+                if [[ -n "$HEADER" ]]; then
+                    puppeteer_args="$url -H '$HEADER' --check-js"
+                fi
+                
+                local js_result
+                js_result=$(node "$puppeteer_wrapper" $puppeteer_args 2>/dev/null)
+                
+                if [[ "$js_result" == "YES" ]]; then
+                    echo "200"  # JavaScript page successfully loaded
+                    return
+                fi
+            fi
+        fi
+    fi
+    
+    echo "$code"
 }
 
 # =========================
@@ -391,4 +503,3 @@ while [[ $# -gt 0 ]]; do
 done
 
     test_page_for_sqli "$URL"
-
