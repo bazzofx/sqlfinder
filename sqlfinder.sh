@@ -223,10 +223,14 @@ fi
 
 # Read URL list into array
 echo -e "[${GREEN}+${NC}] - Collecting URLs from: $url"
-IFS=$'\n' read -r -d '' -a urlList <<< "$(collect_urls "$url")"
+#IFS=$'\n' read -r -d '' -a urlList <<< "$(collect_urls "$url")"
+
+urlList=$(collect_urls "$url")
+echo "$urlList" > "$SCRIPT_DIR/targetUrls.txt"
+echo "http://skip.me" >> "$SCRIPT_DIR/targetUrls.txt"
+urlList=$(cat "$SCRIPT_DIR/targetUrls.txt")
 
 
-echo "${urlList[@]}"
 echo "-------------------------"
 
 
@@ -270,6 +274,10 @@ declare -A vulnerable_bases=()
 for url in "${urlList[@]}"; do
   [[ -z "$url" ]] && continue
   
+  if [[ $url == "http://skip.me\n" ]]; then
+    continue
+  fi
+
   base_url=$(get_base_url "$url")
   
   if [[ -n "${vulnerable_bases[$base_url]}" ]]; then
